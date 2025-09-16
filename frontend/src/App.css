@@ -1,0 +1,58 @@
+.langingPageContainer {
+  width: 100vw;
+  height: 100vh;
+  color: white;
+  background: url(../public/background.png);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.navigationBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-inline: 1.2rem;
+  padding-block: 1.6rem;
+  cursor: pointer;
+}
+
+.logoName {
+  font-size: 1.8rem;
+  font-weight: 500;
+}
+
+.navList {
+  display: flex;
+  gap: 1.6rem;
+}
+
+.landingMainSection {
+  display: flex;
+  justify-content: space-between;
+  padding-inline: 3rem;
+  height: 80vh;
+  align-items: center;
+}
+
+.landingMainSection img {
+  height: 70vh;
+  width: auto;
+}
+
+.landingMainSection .leftSection {
+  font-size: 2.2rem;
+}
+
+.landingMainSection .leftSection div[role="button"] {
+  background: #d97500;
+  width: fit-content;
+  padding: 1rem;
+  margin-top: 1.9rem;
+  border-radius: 20px;
+}
+
+.landingMainSection .leftSection div[role="button"] a {
+  text-decoration: none;
+  color: white;
+  font-size: 1.7rem;
+}
