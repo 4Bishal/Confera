@@ -14,6 +14,7 @@ import Typography from '@mui/material/Typography';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { Snackbar } from '@mui/material';
 import authImage from '../assets/authImage.jpg';
+import { AuthContext } from '../contexts/AuthContext';
 
 
 
@@ -29,10 +30,38 @@ export default function Authentication() {
     const [name, setName] = React.useState();
     const [error, setError] = React.useState();
 
-
     const [formState, setFormState] = React.useState(0);
 
     const [open, setOpen] = React.useState(false);
+    const [message, setMessage] = React.useState();
+    const { handleRegister, handleLogin } = React.useContext(AuthContext);
+
+    const handleAuth = async () => {
+        try {
+            if (formState === 0) {
+                let result = await handleRegister(name, username, password)
+                setMessage(result);
+                setOpen(true)
+                setName("")
+                setUsername("")
+                setPassword("")
+                setError("");
+                setFormState(1)
+            }
+            if (formState === 1) {
+                let result = await handleLogin(username, password);
+                setMessage(result);
+                setOpen(true)
+                setUsername("")
+                setPassword("")
+                setError("")
+            }
+        } catch (err) {
+            let message = err.response.data.message
+            setError(message);
+        }
+
+    }
 
     return (
         <ThemeProvider theme={defaultTheme}>
@@ -69,13 +98,14 @@ export default function Authentication() {
                         </Avatar>
                         <div>
                             <Button variant={formState === 0 ? "contained" : ""} onClick={() => setFormState(0)}>
-                                SIGN IN
+                                Register
                             </Button>
                             <Button variant={formState === 1 ? "contained" : ""} onClick={() => setFormState(1)}>
-                                SIGN UP
+                                LogIn
                             </Button>
                         </div>
-                        <Box component="form" noValidate sx={{ mt: 1 }}>
+                        <Box component="form" noValidate sx={{ mt: 1 }}
+                        >
                             {formState === 0 &&
                                 <TextField
                                     margin="normal"
@@ -86,6 +116,7 @@ export default function Authentication() {
                                     name="name"
                                     autoComplete="name"
                                     autoFocus
+                                    value={name}
                                     onChange={(e) => setName(e.target.value)}
                                 />}
                             <TextField
@@ -97,6 +128,7 @@ export default function Authentication() {
                                 name="username"
                                 autoComplete="username"
                                 autoFocus
+                                value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                             />
                             <TextField
@@ -108,27 +140,28 @@ export default function Authentication() {
                                 type="password"
                                 id="password"
                                 autoComplete="current-password"
+                                value={password}
+                                autoFocus
                                 onChange={(e) => setPassword(e.target.value)}
                             />
-                            <FormControlLabel
-                                control={<Checkbox value="remember" color="primary" />}
-                                label="Remember me"
-                            />
+                            <p style={{ color: "red" }}>{error}</p>
                             <Button
-                                type="submit"
+                                type="button"
                                 fullWidth
                                 variant="contained"
                                 sx={{ mt: 3, mb: 2 }}
+                                onClick={handleAuth}
                             >
-                                Sign In
+                                {formState === 1 ? "logIn" : "Register"}
                             </Button>
                         </Box>
                     </Box>
                 </Grid>
             </Grid>
             <Snackbar
-
-
+                open={open}
+                autoHideDuration={4000}
+                message={message}
             />
         </ThemeProvider>
     );

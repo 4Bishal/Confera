@@ -8,7 +8,7 @@ export const AuthContext = createContext({});
 
 
 const client = axios.create({
-    baseURL: "localhost:8000/api/v1/users"
+    baseURL: "http://localhost:8000/api/v1/users", withCredentials: true
 })
 
 
@@ -24,8 +24,7 @@ export const AuthProvider = ({ children }) => {
                 name: name,
                 username: username,
                 password: password
-            })
-
+            }, { withCredentials: true })
 
             if (request.status === httpStatus.CREATED) {
                 return request.data.message
@@ -35,10 +34,27 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
+    const handleLogin = async (username, password) => {
+        try {
+
+            let request = await client.post("/login", {
+                username: username,
+                password: password
+            }, { withCredentials: true })
+            console.log(request);
+
+            if (request.status === httpStatus.OK) {
+                localStorage.setItem("token", request.data.token);
+            }
+        } catch (err) {
+            throw err
+        }
+    }
+
     const router = useNavigate();
 
     const data = {
-        userData, setUserData, handleRegister
+        userData, setUserData, handleRegister, handleLogin
     }
 
     return (
