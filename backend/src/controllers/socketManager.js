@@ -19,8 +19,9 @@ export const connectToSocket = (server) => {
     });
 
     io.on("connection", (socket) => {
+        console.log("Something Connected")
         socket.on("join-call", (path) => {
-
+            console.log(connections)
             if (connections[path] === undefined) {
                 connections[path] = [];
             }
@@ -30,11 +31,11 @@ export const connectToSocket = (server) => {
             timeOnline[socket.id] = new Date();
 
             for (let i = 0; i < connections[path].length; i++) {
-                io.to(connections[path][i]).emit("user-joined", socket.id);
+                io.to(connections[path][i]).emit("user-joined", socket.id, connections[path]);
             }
 
             if (messages[path] !== undefined) {
-                for (let i = 0; i < messages[path].length; i++) {
+                for (let i = 0; i < messages[path].length; ++i) {
                     io.to(socket.id).emit("chat-message", messages[path][i]['data'], messages[path][i]['sender'], messages[path][i]['socket-id-sender']);
                 }
             }
