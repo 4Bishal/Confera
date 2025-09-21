@@ -59,7 +59,7 @@ export const connectToSocket = (server) => {
             }
         });
 
-        /**
+        /** 
          * Event: "signal"
          * For WebRTC signaling (exchange SDP and ICE candidates)
          * @param {string} toId - Target socket ID
@@ -98,7 +98,7 @@ export const connectToSocket = (server) => {
 
                 // Broadcast the message to all users in the room
                 connections[matchingRoom].forEach(socketId => {
-                    io.to(socketId).emit("chat-message", sender, data, socket.id);
+                    io.to(socketId).emit("chat-message", data, sender, socket.id);
                 });
             }
         });
