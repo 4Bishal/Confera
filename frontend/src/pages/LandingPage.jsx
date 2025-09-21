@@ -1,15 +1,25 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import '../App.css'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 const LandingPage = () => {
+
+    const [randomRoomCode, setrandomRoomCode] = useState()
+    useEffect(() => {
+        setrandomRoomCode(parseInt(Math.random() * 1000))
+    }, [])
+
+    const routeTo = useNavigate();
+
     return (
         <div className='langingPageContainer'>
             <nav className='navigationBar'>
                 <div className="logoName">Confera</div>
                 <div className="navList">
-                    <p>Join as Guest</p>
-                    <p>Register</p>
-                    <div role='button'>Login</div>
+                    <p onClick={() => {
+                        routeTo(`/${randomRoomCode}`)
+                    }}>Join as Guest</p>
+                    <p ><Link to={"http://localhost:5173/auth"} style={{ textDecoration: "none", color: "white" }}>Register</Link></p>
+                    <div role='button'><Link to={"http://localhost:5173/auth"} style={{ textDecoration: "none", color: "white" }}>Login</Link></div>
                 </div>
             </nav>
 
@@ -18,7 +28,7 @@ const LandingPage = () => {
                     <h1><span style={{ color: "#FF9839" }}>Connect </span>with your love Ones</h1>
                     <p>Cover a distance with Confera</p>
                     <div role='button'>
-                        <Link to={"/auth"}>Get Started</Link>
+                        <Link to={"http://localhost:5173/auth"}>Get Started</Link>
                     </div>
                 </div>
                 <div className="rightSection">

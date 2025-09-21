@@ -12,6 +12,7 @@ import ChatIcon from '@mui/icons-material/Chat'
 import { Badge, IconButton } from '@mui/material';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff'
+import { useNavigate } from 'react-router';
 
 const server_url = "http://localhost:8000"
 
@@ -24,6 +25,7 @@ const peerConfigConnections = {
 }
 
 export const VideoMeet = () => {
+    const navigate = useNavigate();
 
     // Socket reference
     const socketRef = useRef();
@@ -368,7 +370,12 @@ export const VideoMeet = () => {
 
     // handle End Cal Function
     const handleEndCall = () => {
-
+        try {
+            const tracks = localVideoRef.current.srcObject.getTracks();
+            tracks.forEach(track => track.stop())
+        } catch (e) {
+        }
+        navigate("/home")
     }
     const getDisplayMediaSuccess = (stream) => {
         try {

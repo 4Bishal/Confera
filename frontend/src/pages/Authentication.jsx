@@ -36,6 +36,7 @@ export default function Authentication() {
     const [message, setMessage] = React.useState();
     const { handleRegister, handleLogin } = React.useContext(AuthContext);
 
+
     const handleAuth = async () => {
         try {
             if (formState === 0) {
