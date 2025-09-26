@@ -192,6 +192,7 @@ export const VideoMeet = () => {
      */
     let gotMessageFromServer = (fromId, message) => {
         var signal = JSON.parse(message);
+        console.log("Signal ", signal);
 
         if (fromId !== socketIdRef.current) {
             // Handle SDP exchange
@@ -375,6 +376,7 @@ export const VideoMeet = () => {
             tracks.forEach(track => track.stop())
         } catch (e) {
         }
+        socketRef.current.disconnect();
         navigate("/home")
     }
     const getDisplayMediaSuccess = (stream) => {
