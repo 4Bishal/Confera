@@ -1,13 +1,22 @@
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom"
+import { AuthContext } from "../contexts/AuthContext";
 
 const withAuth = (WrappedComponent) => {
     const AuthComponent = (props) => {
         const router = useNavigate();
 
-        const isAuthenticated = () => {
+        const { authToken } = useContext(AuthContext);
+
+        const isAuthenticated = async () => {
             if (localStorage.getItem("token")) {
-                return true;
+
+                const localToken = localStorage.getItem("token");
+                const actualToken = await authToken(localToken);
+                if (localToken == actualToken)
+                    return true;
+                else
+                    return false;
             }
             return false;
         }

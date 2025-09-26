@@ -61,6 +61,17 @@ const login = async (req, res) => {
     }
 }
 
+const authToken = async (req, res) => {
+    const { token } = req.query;
+
+    try {
+        const userExists = await User.findOne({ token: token });
+        res.json(userExists);
+    } catch (error) {
+        res.json({ message: `Something went wrong : ${error}` });
+    }
+}
+
 const getUserHistory = async (req, res) => {
     const { token } = req.query;
 
@@ -91,4 +102,4 @@ const addToUserHistory = async (req, res) => {
 }
 
 
-export { login, register, getUserHistory, addToUserHistory };
+export { login, register, getUserHistory, addToUserHistory, authToken };

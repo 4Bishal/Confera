@@ -77,9 +77,20 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
+    const authToken = async (token) => {
+        try {
+            let request = await client.get("/auth_token", {
+                token: token
+            });
+            return request
+        } catch (error) {
+            throw error
+        }
+    }
+
 
     const data = {
-        userData, setUserData, handleRegister, handleLogin, getHistoryOfUser, addToUserHistory
+        userData, setUserData, handleRegister, handleLogin, getHistoryOfUser, addToUserHistory, authToken
     }
 
     return (

@@ -56,30 +56,27 @@ export const History = () => {
                 (meetings.length !== 0) ? meetings.map((e, i) => {
                     return (
 
-                        <>
+                        <Card key={i} variant="outlined">
 
 
-                            <Card key={i} variant="outlined">
+                            <CardContent>
+                                <Typography sx={{ fontSize: 14 }} color="text.secondary" gutterBottom>
+                                    Code: {e.meeting_code}
+                                </Typography>
+
+                                <Typography sx={{ mb: 1.5 }} color="text.secondary">
+                                    Date: {formatDate(e.date)}
+                                </Typography>
+
+                            </CardContent>
 
 
-                                <CardContent>
-                                    <Typography sx={{ fontSize: 14 }} color="text.secondary" gutterBottom>
-                                        Code: {e.meeting_code}
-                                    </Typography>
+                        </Card>
 
-                                    <Typography sx={{ mb: 1.5 }} color="text.secondary">
-                                        Date: {formatDate(e.date)}
-                                    </Typography>
-
-                                </CardContent>
-
-
-                            </Card>
-
-
-                        </>
                     )
-                }) : <></>
+                }) : <>
+                    <p>No meeting yet</p>
+                </>
 
             }
 
