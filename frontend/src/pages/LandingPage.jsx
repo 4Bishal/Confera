@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import '../App.css'
 import { Link, useNavigate } from 'react-router-dom'
+import server from '../environment'
 const LandingPage = () => {
 
     const [randomRoomCode, setrandomRoomCode] = useState()
@@ -10,6 +11,8 @@ const LandingPage = () => {
 
     const routeTo = useNavigate();
 
+
+
     return (
         <div className='langingPageContainer'>
             <nav className='navigationBar'>
@@ -18,8 +21,8 @@ const LandingPage = () => {
                     <p onClick={() => {
                         routeTo(`/${randomRoomCode}`)
                     }}>Join as Guest</p>
-                    <p ><Link to={"http://localhost:5173/auth"} style={{ textDecoration: "none", color: "white" }}>Register</Link></p>
-                    <div role='button'><Link to={"http://localhost:5173/auth"} style={{ textDecoration: "none", color: "white" }}>Login</Link></div>
+                    <p ><Link to={`${server}/auth`} style={{ textDecoration: "none", color: "white" }}>Register</Link></p>
+                    <div role='button'><Link to={`${server}/auth`} style={{ textDecoration: "none", color: "white" }}>Login</Link></div>
                 </div>
             </nav>
 
@@ -28,7 +31,7 @@ const LandingPage = () => {
                     <h1><span style={{ color: "#FF9839" }}>Connect </span>with your love Ones</h1>
                     <p>Cover a distance with Confera</p>
                     <div role='button'>
-                        <Link to={"http://localhost:5173/auth"}>Get Started</Link>
+                        <Link to={`${server}/auth`}>Get Started</Link>
                     </div>
                 </div>
                 <div className="rightSection">
