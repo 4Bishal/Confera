@@ -4,7 +4,7 @@ import LandingPage from "./pages/LandingPage"
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { VideoMeet } from "./pages/VideoMeet"
 import Home from "./pages/Home"
-import { History } from "./pages/history"
+import { History } from "./pages/History"
 function App() {
   return (
     <>
