@@ -22,7 +22,7 @@ const io = connectToSocket(server);
 app.set("port", (process.env.PORT || 8000));
 
 app.use(cors({
-    origin: "http://localhost:5173", // React dev server
+    origin: "https://conferafrontend.onrender.com", // React dev server
     credentials: true,               // allow cookies/auth headers
 }));
 
