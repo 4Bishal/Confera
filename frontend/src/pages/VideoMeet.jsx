@@ -13,8 +13,9 @@ import { Badge, IconButton } from '@mui/material';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff'
 import { useNavigate } from 'react-router';
+import server from '../environment.js';
 
-const server_url = "http://localhost:8000"
+const server_url = server
 
 // Store peer connections for each connected client
 var connections = {};
