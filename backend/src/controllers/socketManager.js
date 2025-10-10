@@ -17,10 +17,10 @@ let timeOnline = {};
 export const connectToSocket = (server) => {
     const io = new Server(server, {
         cors: {
-            origin: "*",                 // Allow requests from any origin
-            methods: ["GET", "POST"],    // Allowed HTTP methods
-            allowedHeaders: ["*"],       // Allow all headers
-            credentials: true            // Allow credentials (cookies, authorization headers)
+            origin: "*",
+            methods: ["GET", "POST"],
+            allowedHeaders: ["*"],
+            credentials: true
         }
     });
 
@@ -44,6 +44,9 @@ export const connectToSocket = (server) => {
 
             // Store the connection time for this socket
             timeOnline[socket.id] = new Date();
+
+            console.log(`User ${socket.id} joined room: ${path}`);
+            console.log(`Room ${path} now has ${connections[path].length} users`);
 
             // Notify all users in the room that a new user has joined
             for (let i = 0; i < connections[path].length; i++) {
@@ -76,7 +79,6 @@ export const connectToSocket = (server) => {
          * @param {string} sender - Sender username or identifier
          */
         socket.on("chat-message", (data, sender) => {
-
             // Find the room this socket belongs to
             const [matchingRoom, found] = Object.entries(connections)
                 .reduce(([room, isFound], [roomKey, roomValue]) => {
@@ -93,7 +95,11 @@ export const connectToSocket = (server) => {
                 }
 
                 // Save the message in memory
-                messages[matchingRoom].push({ 'sender': sender, 'data': data, 'socket-id-sender': socket.id });
+                messages[matchingRoom].push({
+                    'sender': sender,
+                    'data': data,
+                    'socket-id-sender': socket.id
+                });
                 console.log("message", matchingRoom, ":", sender, "=", data);
 
                 // Broadcast the message to all users in the room
@@ -104,37 +110,83 @@ export const connectToSocket = (server) => {
         });
 
         /**
+         * Event: "leave-call"
+         * NEW: Triggered when a user intentionally leaves the call
+         * This provides a cleaner exit than waiting for disconnect timeout
+         */
+        socket.on("leave-call", () => {
+            console.log(`User ${socket.id} intentionally left the call`);
+            handleUserLeaving(socket.id, io, "intentional leave");
+        });
+
+        /**
          * Event: "disconnect"
          * Triggered when a user disconnects from the server
+         * (could be network issue, page refresh, browser close, etc.)
          */
         socket.on("disconnect", () => {
-            // Calculate how long the user was online
-            var diffTime = Math.abs(timeOnline[socket.id] - new Date());
-            console.log(`Socket ${socket.id} disconnected after ${diffTime} ms`);
-
-            // Find the room this socket belongs to and remove it
-            for (const [room, users] of JSON.parse(JSON.stringify(Object.entries(connections)))) {
-                if (users.includes(socket.id)) {
-                    // Notify remaining users that this user left
-                    users.forEach(userId => {
-                        io.to(userId).emit("user-left", socket.id);
-                    });
-
-                    // Remove the socket from the room
-                    const index = connections[room].indexOf(socket.id);
-                    connections[room].splice(index, 1);
-
-                    // Clean up room if empty
-                    if (connections[room].length === 0) {
-                        delete connections[room];
-                    }
-                }
-            }
-
-            // Clean up stored connection time
-            delete timeOnline[socket.id];
+            console.log(`Socket ${socket.id} disconnected`);
+            handleUserLeaving(socket.id, io, "disconnect");
         });
     });
 
     return io;
 };
+
+/**
+ * Helper function to handle user leaving (either intentional or disconnect)
+ * @param {string} socketId - Socket ID of the user leaving
+ * @param {Server} io - Socket.IO server instance
+ * @param {string} reason - Reason for leaving ("intentional leave" or "disconnect")
+ */
+function handleUserLeaving(socketId, io, reason) {
+    // Calculate how long the user was online
+    if (timeOnline[socketId]) {
+        const diffTime = Math.abs(timeOnline[socketId] - new Date());
+        const seconds = (diffTime / 1000).toFixed(2);
+        console.log(`User ${socketId} was online for ${seconds} seconds (${reason})`);
+    }
+
+    // Find all rooms this socket belongs to and remove it
+    let roomsLeft = 0;
+    for (const [room, users] of Object.entries(connections)) {
+        if (users.includes(socketId)) {
+            roomsLeft++;
+            console.log(`Removing user ${socketId} from room: ${room}`);
+
+            // Notify remaining users that this user left
+            users.forEach(userId => {
+                if (userId !== socketId) {
+                    io.to(userId).emit("user-left", socketId);
+                }
+            });
+
+            // Remove the socket from the room
+            const index = connections[room].indexOf(socketId);
+            if (index > -1) {
+                connections[room].splice(index, 1);
+            }
+
+            console.log(`Room ${room} now has ${connections[room].length} users`);
+
+            // Clean up room if empty
+            if (connections[room].length === 0) {
+                console.log(`Room ${room} is now empty, cleaning up...`);
+                delete connections[room];
+
+                // Optional: Also clean up messages for this room
+                if (messages[room]) {
+                    delete messages[room];
+                    console.log(`Deleted messages for room: ${room}`);
+                }
+            }
+        }
+    }
+
+    // Clean up stored connection time
+    delete timeOnline[socketId];
+
+    if (roomsLeft === 0) {
+        console.log(`User ${socketId} was not in any rooms`);
+    }
+}

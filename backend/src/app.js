@@ -22,9 +22,20 @@ const io = connectToSocket(server);
 app.set("port", (process.env.PORT || 8000));
 
 app.use(cors({
-    origin: "https://conferafrontend.onrender.com", // React dev server
-    credentials: true,               // allow cookies/auth headers
+    origin: (origin, callback) => {
+        const allowed = [
+            "https://conferafrontend.onrender.com",
+            "http://localhost:5173",
+        ];
+        if (!origin || allowed.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("CORS not allowed for this origin"));
+        }
+    },
+    credentials: true,
 }));
+
 
 
 app.use(express.json({ limit: "40kb" }));

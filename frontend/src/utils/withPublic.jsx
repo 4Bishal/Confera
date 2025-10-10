@@ -2,21 +2,21 @@ import React, { useContext } from "react";
 import { Navigate } from "react-router-dom";
 import { AuthContext } from "../contexts/AuthContext";
 
-const withAuth = (Component) => {
-    const AuthenticatedComponent = (props) => {
+const withPublic = (Component) => {
+    const PublicComponent = (props) => {
         const { userData, loading } = useContext(AuthContext);
 
         // While checking token, render nothing or a loader
         if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
-        // If not logged in, redirect to login
-        if (!userData) return <Navigate to="/auth" replace />;
+        // If logged in, redirect to home
+        if (userData) return <Navigate to="/home" replace />;
 
-        // Logged in, render the page
+        // Logged out, render the page
         return <Component {...props} />;
     };
 
-    return AuthenticatedComponent;
+    return PublicComponent;
 };
 
-export default withAuth;
+export default withPublic;

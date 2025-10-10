@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addToUserHistory, authToken, getUserHistory, login, register } from "../controllers/users.controllers.js";
+import { addToUserHistory, authToken, clearUserHistory, deleteUserHistoryItem, getUserHistory, login, register } from "../controllers/users.controllers.js";
 
 
 
@@ -12,6 +12,7 @@ router.route("/register").post(register);
 router.route("/add_to_activity").post(addToUserHistory);
 router.route("/get_all_activity").get(getUserHistory);
 router.route("/auth_token").get(authToken);
-
+router.route("/delete_activity").post(deleteUserHistoryItem);
+router.route("/clear_activity").post(clearUserHistory);
 
 export default router;
