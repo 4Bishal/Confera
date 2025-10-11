@@ -9,9 +9,15 @@ function Home() {
     const { logout, addToUserHistory } = useContext(AuthContext);
 
     const handleJoinVideoCall = async () => {
-        if (!meetingCode) return;
+        if (!meetingCode.trim()) return;
         await addToUserHistory(meetingCode);
         navigate(`/${meetingCode}`);
+    };
+
+    const handleKeyPress = (e) => {
+        if (e.key === "Enter") {
+            handleJoinVideoCall();
+        }
     };
 
     return (
@@ -40,24 +46,25 @@ function Home() {
             {/* Main Content */}
             <div className="flex flex-col md:flex-row items-center justify-center min-h-screen pt-24 md:pt-32 px-6 gap-10">
                 {/* Left Panel */}
-                <div className="md:w-1/2 flex flex-col gap-6">
+                <div className="md:w-1/2 flex flex-col gap-4">
                     <h2 className="text-3xl md:text-4xl font-bold text-gray-800">
                         Quality Video Calls, Just Like Quality Education
                     </h2>
                     <p className="text-gray-600">
                         Connect instantly with friends, family, or colleagues.
                     </p>
-                    <div className="flex gap-3 mt-4">
+                    <div className="flex gap-2 mt-4 max-w-md">
                         <input
                             type="text"
                             placeholder="Enter Meeting Code"
-                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF9839]"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FF9839]"
                             value={meetingCode}
                             onChange={(e) => setMeetingCode(e.target.value)}
+                            onKeyDown={handleKeyPress} // Enter key support
                         />
                         <button
                             onClick={handleJoinVideoCall}
-                            className="bg-[#FF9839] text-white px-6 py-2 rounded-lg shadow-md hover:bg-orange-600 transition-all"
+                            className="bg-[#FF9839] text-white px-4 py-2 rounded-lg shadow-md hover:bg-orange-600 transition-all"
                         >
                             Join
                         </button>
@@ -69,7 +76,7 @@ function Home() {
                     <img
                         src="/logo3.png"
                         alt="Confera Logo"
-                        className="w-80 h-80 object-contain animate-pulse-slow"
+                        className="w-60 h-60 md:w-72 md:h-72 object-contain"
                     />
                 </div>
             </div>

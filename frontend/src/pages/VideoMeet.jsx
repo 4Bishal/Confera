@@ -372,7 +372,7 @@ export const VideoMeet = () => {
         socketRef.current.on("signal", gotMessageFromServer);
 
         socketRef.current.on("connect", () => {
-            socketRef.current.emit("join-call", window.location.href);
+            socketRef.current.emit("join-call", window.location.href, username);
             socketIdRef.current = socketRef.current.id;
 
             socketRef.current.on("chat-message", addMessage);
@@ -387,7 +387,7 @@ export const VideoMeet = () => {
                 }
             });
 
-            socketRef.current.on("user-joined", (id, clients) => {
+            socketRef.current.on("user-joined", (id, clients, usernames) => {
                 clients.forEach((socketListId) => {
                     if (!connections[socketListId]) {
                         connections[socketListId] = new RTCPeerConnection(peerConfigConnections);
@@ -409,7 +409,7 @@ export const VideoMeet = () => {
                                 if (videoExists) {
                                     const updatedVideos = videos.map(video =>
                                         video.socketId === socketListId
-                                            ? { ...video, stream: event.streams[0] }
+                                            ? { ...video, stream: event.streams[0], username: usernames[socketListId] }
                                             : video
                                     );
                                     videoRef.current = updatedVideos;
@@ -418,6 +418,7 @@ export const VideoMeet = () => {
                                     let newVideo = {
                                         socketId: socketListId,
                                         stream: event.streams[0],
+                                        username: usernames[socketListId],
                                         autoplay: true,
                                         playsinline: true
                                     };
@@ -647,7 +648,6 @@ export const VideoMeet = () => {
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={connect}
-                            disabled={!username.trim()}
                             className="w-full py-4 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Join Now
@@ -693,8 +693,8 @@ export const VideoMeet = () => {
                                                 <p className="text-white text-xs md:text-sm mt-2">Camera Off</p>
                                             </div>
                                         )}
-                                        <div className="absolute top-2 left-2 text-white text-xs font-medium px-2 py-1 bg-black/60 rounded backdrop-blur-sm">
-                                            Participant {idx + 1}
+                                        <div className="absolute top-2 left-2 text-white text-xs font-medium px-2 py-1 bg-black/30 rounded backdrop-blur-sm">
+                                            {video.username}
                                         </div>
                                         {mutedUsers[video.socketId] && (
                                             <div className="absolute top-2 right-2 bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">

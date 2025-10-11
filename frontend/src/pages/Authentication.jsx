@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../contexts/AuthContext";
 import authImage from "../assets/authImage.jpg";
+import { User, Mail, Lock, Loader } from "lucide-react";
 import withPublic from "../utils/withPublic";
 
 function Authentication() {
@@ -10,42 +11,57 @@ function Authentication() {
     const { handleRegister, handleLogin } = useContext(AuthContext);
 
     const [formState, setFormState] = useState(0); // 0=Register, 1=Login
-    const [name, setName] = useState("");
-    const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
-    const [message, setMessage] = useState("");
-    const [error, setError] = useState("");
-    const [loading, setLoading] = useState(false);
+
+    const [registerData, setRegisterData] = useState({ name: "", username: "", password: "" });
+    const [registerMessage, setRegisterMessage] = useState("");
+    const [registerError, setRegisterError] = useState("");
+    const [registerLoading, setRegisterLoading] = useState(false);
+
+    const [loginData, setLoginData] = useState({ username: "", password: "" });
+    const [loginMessage, setLoginMessage] = useState("");
+    const [loginError, setLoginError] = useState("");
+    const [loginLoading, setLoginLoading] = useState(false);
+
+    const clearRegister = () => setRegisterData({ name: "", username: "", password: "" });
+    const clearLogin = () => setLoginData({ username: "", password: "" });
 
     const handleAuth = async () => {
-        try {
-            setLoading(true);
-            if (formState === 0) {
-                const res = await handleRegister(name, username, password);
-                console.log(res);
-                setMessage(res);
-                setFormState(1);
-                setName("");
-                setUsername("");
-                setPassword("");
-            } else {
-                const res = await handleLogin(username, password);
-                console.log(res);
-                setMessage(res);
-                setUsername("");
-                setPassword("");
+        if (formState === 0) {
+            try {
+                setRegisterLoading(true);
+                setRegisterError("");
+                const res = await handleRegister(registerData.name, registerData.username, registerData.password);
+                setRegisterMessage(res);
+                clearRegister();
+                setTimeout(() => setFormState(1), 1000);
+            } catch (err) {
+                setRegisterError(err.response?.data?.message || "Something went wrong");
+            } finally {
+                setRegisterLoading(false);
             }
-            setError("");
-        } catch (err) {
-            setError(err.response?.data?.message || "Something went wrong");
-        } finally {
-            setLoading(false);
+        } else {
+            try {
+                setLoginLoading(true);
+                setLoginError("");
+                const res = await handleLogin(loginData.username, loginData.password);
+                setLoginMessage(res);
+                clearLogin();
+            } catch (err) {
+                setLoginError(err.response?.data?.message || "Something went wrong");
+            } finally {
+                setLoginLoading(false);
+            }
         }
+    };
+
+    // Handle Enter key submit
+    const handleKeyPress = (e) => {
+        if (e.key === "Enter") handleAuth();
     };
 
     return (
         <div className="min-h-screen flex flex-col md:flex-row bg-gradient-to-br from-[#fffaf5] to-[#ffe6cc]">
-            {/* Left side with image and intro */}
+            {/* Left side */}
             <div
                 className="hidden md:flex md:w-1/2 items-center justify-center relative"
                 style={{
@@ -80,7 +96,7 @@ function Authentication() {
                     {/* Toggle buttons */}
                     <div className="flex justify-center gap-3 mb-6">
                         <button
-                            onClick={() => setFormState(0)}
+                            onClick={() => { setFormState(0); clearRegister(); }}
                             className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${formState === 0
                                 ? "bg-[#FF9839] text-white shadow-md"
                                 : "border border-[#FF9839] text-[#FF9839] hover:bg-[#FF9839]/10"
@@ -89,7 +105,7 @@ function Authentication() {
                             Register
                         </button>
                         <button
-                            onClick={() => setFormState(1)}
+                            onClick={() => { setFormState(1); clearLogin(); }}
                             className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${formState === 1
                                 ? "bg-[#FF9839] text-white shadow-md"
                                 : "border border-[#FF9839] text-[#FF9839] hover:bg-[#FF9839]/10"
@@ -101,76 +117,108 @@ function Authentication() {
 
                     {/* Form animation */}
                     <AnimatePresence mode="wait">
-                        <motion.div
-                            key={formState}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            transition={{ duration: 0.3 }}
-                        >
-                            {formState === 0 && (
-                                <input
-                                    type="text"
-                                    placeholder="Full Name"
-                                    className="w-full mb-3 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                />
-                            )}
-                            <input
-                                type="text"
-                                placeholder="Username"
-                                className="w-full mb-3 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                            />
-                            <input
-                                type="password"
-                                placeholder="Password"
-                                className="w-full mb-3 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                            {error && (
-                                <p className="text-red-500 text-sm text-left mb-2">{error}</p>
-                            )}
-
-                            <button
-                                onClick={handleAuth}
-                                disabled={loading}
-                                className="w-full mt-2 bg-[#FF9839] hover:bg-[#e98025] text-white py-2 rounded-lg font-semibold shadow-md transition-all"
+                        {formState === 0 ? (
+                            <motion.div
+                                key="register"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.3 }}
+                                onKeyDown={handleKeyPress}
                             >
-                                {loading
-                                    ? "Processing..."
-                                    : formState === 0
-                                        ? "Register"
-                                        : "Login"}
-                            </button>
+                                <div className="space-y-3">
+                                    <div className="relative">
+                                        <User size={18} className="absolute left-3 top-3 text-[#FF9839]" />
+                                        <input
+                                            type="text"
+                                            placeholder="Full Name"
+                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
+                                            value={registerData.name}
+                                            onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="relative">
+                                        <Mail size={18} className="absolute left-3 top-3 text-[#FF9839]" />
+                                        <input
+                                            type="text"
+                                            placeholder="Username"
+                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
+                                            value={registerData.username}
+                                            onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="relative">
+                                        <Lock size={18} className="absolute left-3 top-3 text-[#FF9839]" />
+                                        <input
+                                            type="password"
+                                            placeholder="Password"
+                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
+                                            value={registerData.password}
+                                            onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
+                                        />
+                                    </div>
 
-                            <p className="text-sm text-center mt-5 text-gray-600">
-                                {formState === 0 ? "Already have an account?" : "New here?"}{" "}
-                                <span
-                                    className="text-[#FF9839] font-semibold cursor-pointer hover:underline"
-                                    onClick={() => setFormState(formState === 0 ? 1 : 0)}
-                                >
-                                    {formState === 0 ? "Login" : "Register"}
-                                </span>
-                            </p>
-                        </motion.div>
+                                    {registerError && <p className="text-red-500 text-sm mb-2">{registerError}</p>}
+
+                                    <button
+                                        onClick={handleAuth}
+                                        disabled={registerLoading}
+                                        className="w-full mt-2 bg-[#FF9839] hover:bg-[#e98025] text-white py-2 rounded-lg font-semibold shadow-md transition-all flex justify-center items-center gap-2"
+                                    >
+                                        {registerLoading && <Loader className="animate-spin" size={18} />}
+                                        {registerLoading ? "Processing..." : "Register"}
+                                    </button>
+
+                                    {registerMessage && <p className="mt-4 text-center text-[#FF9839] text-sm">{registerMessage}</p>}
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="login"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.3 }}
+                                onKeyDown={handleKeyPress}
+                            >
+                                <div className="space-y-3">
+                                    <div className="relative">
+                                        <Mail size={18} className="absolute left-3 top-3 text-[#FF9839]" />
+                                        <input
+                                            type="text"
+                                            placeholder="Username"
+                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
+                                            value={loginData.username}
+                                            onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="relative">
+                                        <Lock size={18} className="absolute left-3 top-3 text-[#FF9839]" />
+                                        <input
+                                            type="password"
+                                            placeholder="Password"
+                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FF9839] focus:outline-none"
+                                            value={loginData.password}
+                                            onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                                        />
+                                    </div>
+
+                                    {loginError && <p className="text-red-500 text-sm mb-2">{loginError}</p>}
+
+                                    <button
+                                        onClick={handleAuth}
+                                        disabled={loginLoading}
+                                        className="w-full mt-2 bg-[#FF9839] hover:bg-[#e98025] text-white py-2 rounded-lg font-semibold shadow-md transition-all flex justify-center items-center gap-2"
+                                    >
+                                        {loginLoading && <Loader className="animate-spin" size={18} />}
+                                        {loginLoading ? "Processing..." : "Login"}
+                                    </button>
+
+                                    {loginMessage && <p className="mt-4 text-center text-[#FF9839] text-sm">{loginMessage}</p>}
+                                </div>
+                            </motion.div>
+                        )}
                     </AnimatePresence>
-
-                    {/* Message Snackbar */}
-                    {message && (
-                        <motion.p
-                            key={message}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="mt-4 text-center text-[#FF9839] text-sm"
-                        >
-                            {message}
-                        </motion.p>
-                    )}
                 </div>
             </div>
         </div>

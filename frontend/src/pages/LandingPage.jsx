@@ -49,7 +49,7 @@ function LandingPage() {
     return (
         <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-gray-50 text-gray-800 overflow-x-hidden">
             {/* Navbar */}
-            <nav className="flex items-center justify-between px-6 md:px-10 py-4 shadow-sm bg-white/70 backdrop-blur-md sticky top-0 z-50">
+            <nav className="fixed top-0 left-1/2 transform -translate-x-1/2 w-full md:w-full flex items-center justify-between px-6 md:px-10 py-4 shadow-lg bg-white/90 backdrop-blur-md z-50">
                 <h2 className="text-2xl md:text-3xl font-bold text-orange-500">
                     Confera
                 </h2>

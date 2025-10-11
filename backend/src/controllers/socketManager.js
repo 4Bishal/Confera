@@ -3,6 +3,9 @@ import { Server } from "socket.io";
 // Store active connections for each "room" or call path
 let connections = {};
 
+// Store username for each socket
+let usernames = {};
+
 // Store chat messages for each "room" or call path
 let messages = {};
 
@@ -33,11 +36,21 @@ export const connectToSocket = (server) => {
          * Triggered when a user joins a call or room
          * @param {string} path - Unique room or call identifier
          */
-        socket.on("join-call", (path) => {
+        socket.on("join-call", (path, username) => {
+
+            // Store the username for this socket
+            if (username === undefined || username === null || username === "") {
+                usernames[socket.id] = "@anonymous#";
+            } else {
+                usernames[socket.id] = username;
+            }
+
+
             // Initialize the room if it doesn't exist
             if (connections[path] === undefined) {
                 connections[path] = [];
             }
+
 
             // Add this socket to the room's connection list
             connections[path].push(socket.id);
@@ -45,12 +58,12 @@ export const connectToSocket = (server) => {
             // Store the connection time for this socket
             timeOnline[socket.id] = new Date();
 
-            console.log(`User ${socket.id} joined room: ${path}`);
+            console.log(`User ${socket.id} (${username}) joined room: ${path}`);
             console.log(`Room ${path} now has ${connections[path].length} users`);
 
             // Notify all users in the room that a new user has joined
             for (let i = 0; i < connections[path].length; i++) {
-                io.to(connections[path][i]).emit("user-joined", socket.id, connections[path]);
+                io.to(connections[path][i]).emit("user-joined", socket.id, connections[path], usernames);
             }
 
             // Send existing chat messages to the newly joined user
@@ -126,6 +139,7 @@ export const connectToSocket = (server) => {
          */
         socket.on("disconnect", () => {
             console.log(`Socket ${socket.id} disconnected`);
+            delete usernames[socket.id];  // Add this line
             handleUserLeaving(socket.id, io, "disconnect");
         });
     });
