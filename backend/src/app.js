@@ -24,7 +24,7 @@ app.set("port", (process.env.PORT || 8000));
 app.use(cors({
     origin: (origin, callback) => {
         const allowed = [
-            "https://conferafrontend.onrender.com",
+            "https://confera-08ud.onrender.com/",
             "http://localhost:5173",
         ];
         if (!origin || allowed.includes(origin)) {
