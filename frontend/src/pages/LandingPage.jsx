@@ -253,9 +253,18 @@ function LandingPage() {
             <footer className="bg-white py-8 md:py-10 border-t border-gray-200 text-center">
                 <p className="text-gray-600 text-sm sm:text-base">
                     © {new Date().getFullYear()}{" "}
-                    <span className="font-semibold">Confera</span> — All rights reserved.
+                    <span className="font-semibold">Confera</span> — Built by{" "}
+                    <a
+                        href="https://www.bhandari-bishal.com.np"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                    >
+                        Bishal Bhandari
+                    </a>.
                 </p>
             </footer>
+
         </div>
     );
 }
