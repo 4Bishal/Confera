@@ -534,10 +534,19 @@ export const VideoMeet = () => {
             setAudioAvailable(true);
             audioStream.getTracks().forEach(track => track.stop());
 
-            const hasScreenShare = !!(navigator.mediaDevices.getDisplayMedia ||
+            // Check if device is mobile
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            // Screen sharing is typically not available on mobile devices
+            const hasScreenShare = !isMobile && !!(navigator.mediaDevices.getDisplayMedia ||
                 navigator.getDisplayMedia ||
                 (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+
             setScreenAvailable(hasScreenShare);
+
+            if (isMobile) {
+                console.log('Mobile device detected - screen sharing disabled');
+            }
         } catch (error) {
             console.error("Permission error:", error);
         }
@@ -707,6 +716,7 @@ export const VideoMeet = () => {
         if (count <= 9) return { cols: 3, rows: 3 };
         return { cols: 4, rows: Math.ceil(count / 4) };
     }, [videos.length]);
+
     // Separate useEffect for handling video/audio toggle
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !screen) {
