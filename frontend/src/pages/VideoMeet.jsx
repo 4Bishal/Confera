@@ -273,12 +273,20 @@ export const VideoMeet = () => {
                     }
                     isScreenSharingRef.current = true;
 
+                    // Preserve the current audio state when screen sharing
+                    const audioTracks = stream.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        audioTracks[0].enabled = audio;
+                        console.log('Screen share audio track enabled:', audio);
+                    }
+
                     await replaceStreamForPeers(stream);
 
                     stream.getTracks().forEach(track => {
                         track.onended = () => {
                             setScreen(false);
                             isScreenSharingRef.current = false;
+                            // Don't force audio/video off - just return to camera
                             getUserMedia();
                         };
                     });
@@ -295,8 +303,7 @@ export const VideoMeet = () => {
             isScreenSharingRef.current = false;
             getUserMedia();
         }
-    }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia]);
-
+    }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia, audio]);
     const gotMessageFromServer = useCallback((fromId, message) => {
         const signal = JSON.parse(message);
 
