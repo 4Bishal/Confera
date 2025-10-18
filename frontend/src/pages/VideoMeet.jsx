@@ -28,7 +28,6 @@ const BLACK_VIDEO_DIMS = { width: 640, height: 480 };
 
 export const VideoMeet = () => {
     const navigate = useNavigate();
-    const savedAudioStateRef = useRef(true);
     const socketRef = useRef();
     const socketIdRef = useRef();
     const localVideoRef = useRef();
@@ -54,8 +53,6 @@ export const VideoMeet = () => {
     const [remoteUserStates, setRemoteUserStates] = useState({});
     const [showCopyFeedback, setShowCopyFeedback] = useState(false);
     const videoRefs = useRef({});
-
-
 
     const createSilentAudioTrack = useCallback(() => {
         const ctx = new AudioContext();
@@ -168,10 +165,8 @@ export const VideoMeet = () => {
     const handleTrackEnded = useCallback(async () => {
         if (isScreenSharingRef.current) {
             setScreen(false);
-            isScreenSharingRef.current = false;
-            // Restore saved state instead of forcing off
-            setVideo(savedStateRef.current.video);
-            setAudio(savedStateRef.current.audio);
+            setVideo(false);
+            setAudio(false);
         } else {
             setVideo(false);
             setAudio(false);
@@ -183,11 +178,13 @@ export const VideoMeet = () => {
         if (localVideoRef.current) {
             localVideoRef.current.srcObject = blackSilence;
         }
+        isScreenSharingRef.current = false;
 
         await replaceStreamForPeers(blackSilence);
     }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers]);
 
     const getUserMedia = useCallback(async () => {
+        // Always request both video and audio if available
         const requestVideo = videoAvailable;
         const requestAudio = audioAvailable;
 
@@ -212,21 +209,18 @@ export const VideoMeet = () => {
 
                 isScreenSharingRef.current = false;
 
-                // Immediately set the tracks to the current state
-                const videoTracks = stream.getVideoTracks();
-                const audioTracks = stream.getAudioTracks();
+                // Set initial enabled state based on current video/audio state
+                stream.getVideoTracks().forEach(track => {
+                    track.enabled = video;
+                    console.log('Video track enabled:', video);
+                });
 
-                if (videoTracks.length > 0) {
-                    videoTracks[0].enabled = video;
-                    console.log('Video track enabled on new stream:', video);
-                }
+                stream.getAudioTracks().forEach(track => {
+                    track.enabled = audio;
+                    console.log('Audio track enabled:', audio);
+                });
 
-                if (audioTracks.length > 0) {
-                    audioTracks[0].enabled = audio;
-                    console.log('Audio track enabled on new stream:', audio);
-                    savedAudioStateRef.current = audio;
-                }
-
+                // Replace stream for all peers
                 console.log('Replacing stream for peers with new getUserMedia stream');
                 await replaceStreamForPeers(stream);
 
@@ -239,6 +233,7 @@ export const VideoMeet = () => {
                 console.error("getUserMedia error:", e);
             }
         } else {
+            // No media available, use black/silent
             stopLocalStream();
             const blackSilence = createBlackSilenceStream();
             localStreamRef.current = blackSilence;
@@ -260,10 +255,6 @@ export const VideoMeet = () => {
                 const getDisplay = displayMediaAPI.bind(navigator.mediaDevices || navigator);
 
                 try {
-                    // Save audio state before screen share
-                    savedAudioStateRef.current = audio;
-                    console.log('Saved audio state before screen share:', savedAudioStateRef.current);
-
                     const stream = await getDisplay({
                         video: {
                             cursor: "always",
@@ -272,7 +263,7 @@ export const VideoMeet = () => {
                             width: { ideal: 1920, max: 1920 },
                             height: { ideal: 1080, max: 1080 }
                         },
-                        audio: false
+                        audio: true
                     });
 
                     stopLocalStream();
@@ -282,24 +273,12 @@ export const VideoMeet = () => {
                     }
                     isScreenSharingRef.current = true;
 
-                    stream.getVideoTracks().forEach(track => {
-                        track.enabled = true;
-                    });
-
-                    console.log('Screen share stream obtained');
                     await replaceStreamForPeers(stream);
 
                     stream.getTracks().forEach(track => {
-                        track.onended = async () => {
-                            console.log('Screen share track ended');
+                        track.onended = () => {
                             setScreen(false);
                             isScreenSharingRef.current = false;
-
-                            // Wait a bit before getting user media to avoid race conditions
-                            await new Promise(resolve => setTimeout(resolve, 300));
-
-                            // Restore the saved audio state when returning to camera
-                            setAudio(savedAudioStateRef.current);
                             getUserMedia();
                         };
                     });
@@ -314,11 +293,9 @@ export const VideoMeet = () => {
             }
         } else {
             isScreenSharingRef.current = false;
-            // When stopping screen share via button, restore saved audio state
-            setAudio(savedAudioStateRef.current);
             getUserMedia();
         }
-    }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia, audio]);
+    }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia]);
 
     const gotMessageFromServer = useCallback((fromId, message) => {
         const signal = JSON.parse(message);
@@ -658,65 +635,15 @@ export const VideoMeet = () => {
         connectToSocketServer();
     }, [videoAvailable, audioAvailable, createBlackSilenceStream, connectToSocketServer]);
 
-    // Replace ONLY the handleVideo function with this:
     const handleVideo = useCallback(() => {
         if (!screen) {
-            setVideo(prev => {
-                const newVideoState = !prev;
-
-                // Immediately update the tracks when video is toggled
-                if (localStreamRef.current && !screen) {
-                    const videoTracks = localStreamRef.current.getVideoTracks();
-                    videoTracks.forEach(track => {
-                        if (track.label !== 'canvas') {
-                            track.enabled = newVideoState;
-                            console.log('Video track toggled to:', newVideoState);
-                        }
-                    });
-                }
-
-                // Broadcast the state change
-                if (socketRef.current) {
-                    socketRef.current.emit("media-state-change", {
-                        video: newVideoState,
-                        audio: audio,
-                        screen: screen
-                    });
-                }
-
-                return newVideoState;
-            });
+            setVideo(prev => !prev);
         }
-    }, [audio, screen]);
+    }, [screen]);
 
-    // Replace ONLY the handleAudio function with this:
     const handleAudio = useCallback(() => {
-        setAudio(prev => {
-            const newAudioState = !prev;
-
-            // Immediately update the tracks when audio is toggled
-            if (localStreamRef.current) {
-                const audioTracks = localStreamRef.current.getAudioTracks();
-                audioTracks.forEach(track => {
-                    if (track.label !== 'MediaStreamAudioDestinationNode') {
-                        track.enabled = newAudioState;
-                        console.log('Audio track toggled to:', newAudioState);
-                    }
-                });
-            }
-
-            // Broadcast the state change
-            if (socketRef.current) {
-                socketRef.current.emit("media-state-change", {
-                    video: video,
-                    audio: newAudioState,
-                    screen: screen
-                });
-            }
-
-            return newAudioState;
-        });
-    }, [video, screen]);
+        setAudio(prev => !prev);
+    }, []);
 
     const handleScreen = useCallback(() => {
         setScreen(prev => !prev);
@@ -792,11 +719,26 @@ export const VideoMeet = () => {
 
     // Separate useEffect for handling video/audio toggle
     useEffect(() => {
-        // This effect just broadcasts state changes, the actual track updates happen in the handlers
-        if (!askForUsername && socketRef.current) {
+        if (!askForUsername && localStreamRef.current && !screen) {
+            const videoTracks = localStreamRef.current.getVideoTracks();
+            const audioTracks = localStreamRef.current.getAudioTracks();
+
+            // Toggle video track enabled state
+            if (videoTracks.length > 0 && videoTracks[0].label !== 'canvas') {
+                videoTracks[0].enabled = video;
+                console.log('Set video track enabled to:', video);
+            }
+
+            // Toggle audio track enabled state
+            if (audioTracks.length > 0 && audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
+                audioTracks[0].enabled = audio;
+                console.log('Set audio track enabled to:', audio);
+            }
+
+            // Broadcast the state change
             broadcastMediaState();
         }
-    }, [video, audio, screen, askForUsername, broadcastMediaState]);
+    }, [video, audio, askForUsername, screen, broadcastMediaState]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
