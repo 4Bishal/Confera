@@ -28,6 +28,7 @@ const BLACK_VIDEO_DIMS = { width: 640, height: 480 };
 
 export const VideoMeet = () => {
     const navigate = useNavigate();
+    const savedAudioStateRef = useRef(true);
     const socketRef = useRef();
     const socketIdRef = useRef();
     const localVideoRef = useRef();
@@ -53,8 +54,8 @@ export const VideoMeet = () => {
     const [remoteUserStates, setRemoteUserStates] = useState({});
     const [showCopyFeedback, setShowCopyFeedback] = useState(false);
     const videoRefs = useRef({});
-    // 1. Add this ref to store state before screen sharing:
-    const savedStateRef = useRef({ video: true, audio: true });
+
+
 
     const createSilentAudioTrack = useCallback(() => {
         const ctx = new AudioContext();
@@ -187,7 +188,6 @@ export const VideoMeet = () => {
     }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers]);
 
     const getUserMedia = useCallback(async () => {
-        // Always request both video and audio if available
         const requestVideo = videoAvailable;
         const requestAudio = audioAvailable;
 
@@ -212,18 +212,21 @@ export const VideoMeet = () => {
 
                 isScreenSharingRef.current = false;
 
-                // Set initial enabled state based on current video/audio state
-                stream.getVideoTracks().forEach(track => {
-                    track.enabled = video;
-                    console.log('Video track enabled:', video);
-                });
+                // Immediately set the tracks to the current state
+                const videoTracks = stream.getVideoTracks();
+                const audioTracks = stream.getAudioTracks();
 
-                stream.getAudioTracks().forEach(track => {
-                    track.enabled = audio;
-                    console.log('Audio track enabled:', audio);
-                });
+                if (videoTracks.length > 0) {
+                    videoTracks[0].enabled = video;
+                    console.log('Video track enabled on new stream:', video);
+                }
 
-                // Replace stream for all peers
+                if (audioTracks.length > 0) {
+                    audioTracks[0].enabled = audio;
+                    console.log('Audio track enabled on new stream:', audio);
+                    savedAudioStateRef.current = audio;
+                }
+
                 console.log('Replacing stream for peers with new getUserMedia stream');
                 await replaceStreamForPeers(stream);
 
@@ -236,7 +239,6 @@ export const VideoMeet = () => {
                 console.error("getUserMedia error:", e);
             }
         } else {
-            // No media available, use black/silent
             stopLocalStream();
             const blackSilence = createBlackSilenceStream();
             localStreamRef.current = blackSilence;
@@ -258,9 +260,9 @@ export const VideoMeet = () => {
                 const getDisplay = displayMediaAPI.bind(navigator.mediaDevices || navigator);
 
                 try {
-                    // Save current state before screen sharing
-                    savedStateRef.current = { video, audio };
-                    console.log('Saved state before screen share:', savedStateRef.current);
+                    // Save audio state before screen share
+                    savedAudioStateRef.current = audio;
+                    console.log('Saved audio state before screen share:', savedAudioStateRef.current);
 
                     const stream = await getDisplay({
                         video: {
@@ -270,7 +272,7 @@ export const VideoMeet = () => {
                             width: { ideal: 1920, max: 1920 },
                             height: { ideal: 1080, max: 1080 }
                         },
-                        audio: false  // Don't get audio from display media
+                        audio: false
                     });
 
                     stopLocalStream();
@@ -280,18 +282,24 @@ export const VideoMeet = () => {
                     }
                     isScreenSharingRef.current = true;
 
-                    // Set video to enabled for screen share
                     stream.getVideoTracks().forEach(track => {
                         track.enabled = true;
                     });
 
+                    console.log('Screen share stream obtained');
                     await replaceStreamForPeers(stream);
 
                     stream.getTracks().forEach(track => {
-                        track.onended = () => {
+                        track.onended = async () => {
+                            console.log('Screen share track ended');
                             setScreen(false);
                             isScreenSharingRef.current = false;
-                            // Return to camera with saved state
+
+                            // Wait a bit before getting user media to avoid race conditions
+                            await new Promise(resolve => setTimeout(resolve, 300));
+
+                            // Restore the saved audio state when returning to camera
+                            setAudio(savedAudioStateRef.current);
                             getUserMedia();
                         };
                     });
@@ -306,6 +314,8 @@ export const VideoMeet = () => {
             }
         } else {
             isScreenSharingRef.current = false;
+            // When stopping screen share via button, restore saved audio state
+            setAudio(savedAudioStateRef.current);
             getUserMedia();
         }
     }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia, audio]);
@@ -732,28 +742,22 @@ export const VideoMeet = () => {
 
     // Separate useEffect for handling video/audio toggle
     useEffect(() => {
-        if (!askForUsername && localStreamRef.current) {
-            const videoTracks = localStreamRef.current.getVideoTracks();
-            const audioTracks = localStreamRef.current.getAudioTracks();
+        if (!askForUsername && localStreamRef.current && !screen) {
+            try {
+                const audioTracks = localStreamRef.current.getAudioTracks();
 
-            // Handle video tracks
-            if (videoTracks.length > 0 && videoTracks[0].label !== 'canvas') {
-                // Only set video to the state value if NOT screen sharing
-                if (!screen) {
-                    videoTracks[0].enabled = video;
-                    console.log('Set video track enabled to:', video);
+                // Only update if we have a real stream (not black silence)
+                if (audioTracks.length > 0 && audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
+                    audioTracks[0].enabled = audio;
+                    console.log('Audio track enabled via effect:', audio);
                 }
-            }
 
-            // Handle audio tracks - works for both camera and screen share
-            if (audioTracks.length > 0 && audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
-                audioTracks[0].enabled = audio;
-                console.log('Set audio track enabled to:', audio);
+                broadcastMediaState();
+            } catch (e) {
+                console.error('Error updating audio in effect:', e);
             }
-
-            broadcastMediaState();
         }
-    }, [video, audio, askForUsername, screen, broadcastMediaState]);
+    }, [audio, askForUsername, screen, broadcastMediaState]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
