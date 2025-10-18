@@ -11,7 +11,6 @@ const client = axios.create({
     withCredentials: true,
 });
 
-console.log(server);
 
 export const AuthProvider = ({ children }) => {
     const router = useNavigate();
