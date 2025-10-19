@@ -115,8 +115,8 @@ export const VideoMeet = () => {
         console.log('Renegotiation complete for all peers');
     }, []);
 
-    const replaceStreamForPeers = useCallback(async (newStream) => {
-        console.log('Replacing stream for all peers');
+    const replaceStreamForPeers = useCallback(async (newStream, options = {}) => {
+        console.log('Replacing stream for all peers', options);
 
         const replacePromises = [];
 
@@ -136,11 +136,13 @@ export const VideoMeet = () => {
                         await videoSender.replaceTrack(videoTrack);
                     }
 
-                    // Replace audio track ONLY if it's actually different
+                    // Replace audio track ONLY if explicitly requested or if it's a different track
                     const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
                     if (audioSender && audioTrack) {
-                        // Check if it's actually a different track
-                        if (audioSender.track !== audioTrack) {
+                        // Skip audio replacement during camera switch
+                        if (options.skipAudio) {
+                            console.log(`Skipping audio track replacement for peer ${id} (camera switch)`);
+                        } else if (audioSender.track !== audioTrack) {
                             console.log(`Replacing audio track for peer ${id} (different track detected)`);
                             await audioSender.replaceTrack(audioTrack);
                         } else {
@@ -157,9 +159,13 @@ export const VideoMeet = () => {
 
         await Promise.all(replacePromises);
 
-        // Only renegotiate after a short delay to batch operations
-        console.log('All tracks replaced, starting renegotiation...');
-        await renegotiateWithPeers();
+        // Only renegotiate if not skipping
+        if (!options.skipRenegotiation) {
+            console.log('All tracks replaced, starting renegotiation...');
+            await renegotiateWithPeers();
+        } else {
+            console.log('Skipping renegotiation as requested');
+        }
     }, [renegotiateWithPeers]);
 
     const stopLocalStream = useCallback(() => {
@@ -719,12 +725,15 @@ export const VideoMeet = () => {
 
         try {
             let originalAudioTrack = null;
+            let originalAudioEnabled = currentAudioState;
 
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks();
                 if (audioTracks.length > 0) {
                     originalAudioTrack = audioTracks[0];
-                    console.log('Preserving audio track:', originalAudioTrack.label, 'current UI audio state:', currentAudioState);
+                    // Store the CURRENT enabled state of the track before any changes
+                    originalAudioEnabled = originalAudioTrack.enabled;
+                    console.log('Preserving audio track:', originalAudioTrack.label, 'original enabled state:', originalAudioEnabled, 'current UI audio state:', currentAudioState);
                 }
             }
 
@@ -753,10 +762,10 @@ export const VideoMeet = () => {
             freshStream.addTrack(newVideoTrack);
 
             if (originalAudioTrack) {
+                // CRITICAL: Set the enabled state BEFORE adding to stream
+                originalAudioTrack.enabled = originalAudioEnabled;
                 freshStream.addTrack(originalAudioTrack);
-                // Set the audio track enabled state to match current UI state
-                originalAudioTrack.enabled = currentAudioState;
-                console.log('Audio track added to new stream, enabled set to:', currentAudioState);
+                console.log('Audio track added to new stream, enabled explicitly set to:', originalAudioEnabled);
             }
 
             localStreamRef.current = freshStream;
@@ -765,22 +774,39 @@ export const VideoMeet = () => {
                 localVideoRef.current.srcObject = freshStream;
             }
 
-            await replaceStreamForPeers(freshStream);
+            // Replace stream for peers
+            await replaceStreamForPeers(freshStream, { skipAudio: false });
+
+            // CRITICAL: Force the audio track state again after peer replacement with a small delay
+            // This ensures the state is preserved even after renegotiation
+            setTimeout(() => {
+                if (originalAudioTrack && localStreamRef.current) {
+                    const currentAudioTracks = localStreamRef.current.getAudioTracks();
+                    currentAudioTracks.forEach(track => {
+                        if (track.id === originalAudioTrack.id) {
+                            track.enabled = originalAudioEnabled;
+                            console.log('Audio track enabled state re-confirmed after timeout:', originalAudioEnabled);
+                        }
+                    });
+                }
+            }, 200);
 
             setCameraFacingMode(newFacingMode);
 
-            console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', currentAudioState);
+            console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', originalAudioEnabled);
 
         } catch (error) {
             console.error('Camera switch error:', error);
 
             try {
                 let originalAudioTrack = null;
+                let originalAudioEnabled = currentAudioState;
 
                 if (localStreamRef.current) {
                     const audioTracks = localStreamRef.current.getAudioTracks();
                     if (audioTracks.length > 0) {
                         originalAudioTrack = audioTracks[0];
+                        originalAudioEnabled = originalAudioTrack.enabled;
                     }
                 }
 
@@ -806,9 +832,9 @@ export const VideoMeet = () => {
                 freshStream.addTrack(newVideoTrack);
 
                 if (originalAudioTrack) {
+                    // CRITICAL: Set enabled state BEFORE adding to stream
+                    originalAudioTrack.enabled = originalAudioEnabled;
                     freshStream.addTrack(originalAudioTrack);
-                    // Set the audio track enabled state to match current UI state
-                    originalAudioTrack.enabled = currentAudioState;
                 }
 
                 localStreamRef.current = freshStream;
@@ -817,7 +843,21 @@ export const VideoMeet = () => {
                     localVideoRef.current.srcObject = freshStream;
                 }
 
-                await replaceStreamForPeers(freshStream);
+                await replaceStreamForPeers(freshStream, { skipAudio: false });
+
+                // CRITICAL: Force the audio track state again with delay
+                setTimeout(() => {
+                    if (originalAudioTrack && localStreamRef.current) {
+                        const currentAudioTracks = localStreamRef.current.getAudioTracks();
+                        currentAudioTracks.forEach(track => {
+                            if (track.id === originalAudioTrack.id) {
+                                track.enabled = originalAudioEnabled;
+                                console.log('Audio track enabled state re-confirmed (fallback) after timeout:', originalAudioEnabled);
+                            }
+                        });
+                    }
+                }, 200);
+
                 setCameraFacingMode(newFacingMode);
 
                 console.log('Camera switched (fallback) successfully');
