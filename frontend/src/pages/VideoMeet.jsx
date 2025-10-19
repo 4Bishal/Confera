@@ -743,10 +743,12 @@ export const VideoMeet = () => {
             const freshStream = new MediaStream();
             freshStream.addTrack(newVideoTrack);
 
-            // Add the ORIGINAL audio track with its ORIGINAL enabled state (don't touch it!)
+            // Add the ORIGINAL audio track and explicitly preserve its enabled state
             if (originalAudioTrack) {
                 freshStream.addTrack(originalAudioTrack);
-                console.log('Audio track added to new stream, enabled:', originalAudioTrack.enabled);
+                // CRITICAL: Re-apply the enabled state after adding to stream
+                originalAudioTrack.enabled = audioWasEnabled;
+                console.log('Audio track added to new stream, enabled state preserved:', originalAudioTrack.enabled);
             }
 
             // Update local stream reference
@@ -804,6 +806,8 @@ export const VideoMeet = () => {
 
                 if (originalAudioTrack) {
                     freshStream.addTrack(originalAudioTrack);
+                    // CRITICAL: Re-apply the enabled state in fallback too
+                    originalAudioTrack.enabled = audioWasEnabled;
                 }
 
                 localStreamRef.current = freshStream;
