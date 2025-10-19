@@ -672,9 +672,110 @@ export const VideoMeet = () => {
         setScreen(prev => !prev);
     }, []);
 
-    const handleCameraToggle = useCallback(() => {
-        setCameraFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-    }, []);
+    const handleCameraToggle = useCallback(async () => {
+        if (screen || isScreenSharingRef.current) return;
+
+        const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+        console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
+
+        try {
+            // Stop current video tracks
+            if (localStreamRef.current) {
+                localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+            }
+
+            // Request new stream with new facing mode
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: 1280,
+                    height: 720,
+                    facingMode: { exact: newFacingMode }
+                },
+                audio: false // Don't re-request audio
+            });
+
+            // Get the current audio track to preserve it
+            let audioTrack = null;
+            if (localStreamRef.current) {
+                const audioTracks = localStreamRef.current.getAudioTracks();
+                if (audioTracks.length > 0) {
+                    audioTrack = audioTracks[0];
+                }
+            }
+
+            // Create new stream with new video and existing audio
+            const newStream = new MediaStream();
+            stream.getVideoTracks().forEach(track => {
+                track.enabled = video; // Maintain current video state
+                newStream.addTrack(track);
+            });
+
+            if (audioTrack) {
+                newStream.addTrack(audioTrack);
+            }
+
+            // Update local stream and video element
+            localStreamRef.current = newStream;
+            if (localVideoRef.current) {
+                localVideoRef.current.srcObject = newStream;
+            }
+
+            // Replace tracks for all peers
+            await replaceStreamForPeers(newStream);
+
+            // Update facing mode state
+            setCameraFacingMode(newFacingMode);
+
+            console.log('Camera switched successfully to', newFacingMode);
+        } catch (error) {
+            console.error('Error switching camera:', error);
+            // If exact facing mode fails, try without exact
+            try {
+                if (localStreamRef.current) {
+                    localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: 1280,
+                        height: 720,
+                        facingMode: newFacingMode
+                    },
+                    audio: false
+                });
+
+                let audioTrack = null;
+                if (localStreamRef.current) {
+                    const audioTracks = localStreamRef.current.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        audioTrack = audioTracks[0];
+                    }
+                }
+
+                const newStream = new MediaStream();
+                stream.getVideoTracks().forEach(track => {
+                    track.enabled = video;
+                    newStream.addTrack(track);
+                });
+
+                if (audioTrack) {
+                    newStream.addTrack(audioTrack);
+                }
+
+                localStreamRef.current = newStream;
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = newStream;
+                }
+
+                await replaceStreamForPeers(newStream);
+                setCameraFacingMode(newFacingMode);
+
+                console.log('Camera switched successfully (fallback) to', newFacingMode);
+            } catch (fallbackError) {
+                console.error('Fallback camera switch also failed:', fallbackError);
+            }
+        }
+    }, [cameraFacingMode, screen, video, replaceStreamForPeers]);
 
     const handleChat = useCallback(() => {
         setShowModal(prev => {
@@ -977,6 +1078,22 @@ export const VideoMeet = () => {
                         >
                             {audio ? <Mic size={18} className="md:w-5 md:h-5" /> : <MicOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
+
+                        {hasMultipleCameras && (
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={handleCameraToggle}
+                                disabled={screen || !videoAvailable}
+                                className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
+                                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                    : 'bg-gray-200 text-black hover:bg-gray-300'
+                                    }`}
+                                title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                            >
+                                <SwitchCamera size={18} className="md:w-5 md:h-5" />
+                            </motion.button>
+                        )}
 
                         <motion.button
                             whileHover={{ scale: 1.05 }}
