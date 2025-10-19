@@ -906,19 +906,23 @@ export const VideoMeet = () => {
                             className="w-full px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-black bg-white shadow-lg transition-all"
                         />
                         {hasMultipleCameras && (
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={handleCameraToggle}
-                                disabled={screen || !videoAvailable}
-                                className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
-                                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
-                                    : 'bg-gray-200 text-black hover:bg-gray-300'
-                                    }`}
-                                title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
-                            >
-                                <SwitchCamera size={18} className="md:w-5 md:h-5" />
-                            </motion.button>
+                            <div className="w-full flex items-center gap-2">
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={handleCameraToggle}
+                                    disabled={screen || !videoAvailable}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all ${screen || !videoAvailable
+                                        ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                        : 'bg-gray-200 text-black hover:bg-gray-300'
+                                        }`}
+                                >
+                                    <SwitchCamera size={18} className="md:w-5 md:h-5" />
+                                    <span className="text-sm font-medium">
+                                        Switch to {cameraFacingMode === 'user' ? 'Back' : 'Front'} Camera
+                                    </span>
+                                </motion.button>
+                            </div>
                         )}
 
                         <motion.button
@@ -1033,25 +1037,11 @@ export const VideoMeet = () => {
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-1 text-center text-xs text-white font-semibold truncate">
                             {username} (You) {screen && '- Sharing'}
                         </div>
-                        <div className="absolute top-1 right-1 flex gap-1">
-                            {hasMultipleCameras && !screen && (
-                                <motion.button
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={handleCameraToggle}
-                                    disabled={!videoAvailable}
-                                    className="bg-blue-500/80 hover:bg-blue-600/90 p-1.5 rounded-full backdrop-blur-sm transition-all disabled:opacity-50"
-                                    title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
-                                >
-                                    <SwitchCamera size={12} className="text-white md:w-4 md:h-4" />
-                                </motion.button>
-                            )}
-                            {!audio && (
-                                <div className="bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
-                                    <MicOff size={10} className="text-white md:w-3 md:h-3" />
-                                </div>
-                            )}
-                        </div>
+                        {!audio && (
+                            <div className="absolute top-1 right-1 bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
+                                <MicOff size={10} className="text-white md:w-3 md:h-3" />
+                            </div>
+                        )}
                     </motion.div>
 
                     <motion.div className="fixed bottom-3 left-1/2 transform -translate-x-1/2 backdrop-blur-xl bg-white/10 border border-white/20 rounded-full shadow-2xl px-3 md:px-6 py-2.5 md:py-3.5 flex items-center gap-2 md:gap-3 z-40">
