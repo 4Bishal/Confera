@@ -58,6 +58,7 @@ export const VideoMeet = () => {
     const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
     const videoRefs = useRef({});
     const isSwitchingCameraRef = useRef(false);
+    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
 
     const createSilentAudioTrack = useCallback(() => {
         const ctx = new AudioContext();
