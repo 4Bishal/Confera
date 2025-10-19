@@ -694,7 +694,7 @@ export const VideoMeet = () => {
                 audio: false // Don't re-request audio
             });
 
-            // Get the current audio track to preserve it
+            // Get the current audio track to preserve it WITH ITS STATE
             let audioTrack = null;
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks();
@@ -711,6 +711,8 @@ export const VideoMeet = () => {
             });
 
             if (audioTrack) {
+                // IMPORTANT: Preserve the audio track's enabled state
+                audioTrack.enabled = audio;
                 newStream.addTrack(audioTrack);
             }
 
@@ -726,7 +728,7 @@ export const VideoMeet = () => {
             // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
-            console.log('Camera switched successfully to', newFacingMode);
+            console.log('Camera switched successfully to', newFacingMode, 'with audio enabled:', audio);
         } catch (error) {
             console.error('Error switching camera:', error);
             // If exact facing mode fails, try without exact
@@ -759,6 +761,8 @@ export const VideoMeet = () => {
                 });
 
                 if (audioTrack) {
+                    // IMPORTANT: Preserve the audio track's enabled state
+                    audioTrack.enabled = audio;
                     newStream.addTrack(audioTrack);
                 }
 
@@ -770,12 +774,12 @@ export const VideoMeet = () => {
                 await replaceStreamForPeers(newStream);
                 setCameraFacingMode(newFacingMode);
 
-                console.log('Camera switched successfully (fallback) to', newFacingMode);
+                console.log('Camera switched successfully (fallback) to', newFacingMode, 'with audio enabled:', audio);
             } catch (fallbackError) {
                 console.error('Fallback camera switch also failed:', fallbackError);
             }
         }
-    }, [cameraFacingMode, screen, video, replaceStreamForPeers]);
+    }, [cameraFacingMode, screen, video, audio, replaceStreamForPeers]);
 
     const handleChat = useCallback(() => {
         setShowModal(prev => {
@@ -990,7 +994,7 @@ export const VideoMeet = () => {
                                                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
                                                     <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
                                                         <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.toUpperCase() || 'anonymous'}
+                                                            {video.username?.toUpperCase() || 'U'}
                                                         </span>
                                                     </div>
                                                     <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
