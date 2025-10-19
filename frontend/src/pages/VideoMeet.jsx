@@ -720,25 +720,23 @@ export const VideoMeet = () => {
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
 
-        // Capture current audio state from the UI state, not the track
-        const currentAudioState = audio;
+        // Capture current audio track and its enabled state
+        let originalAudioTrack = null;
+        let originalAudioEnabled = false;
+
+        if (localStreamRef.current) {
+            const audioTracks = localStreamRef.current.getAudioTracks();
+            if (audioTracks.length > 0) {
+                originalAudioTrack = audioTracks[0];
+                originalAudioEnabled = originalAudioTrack.enabled;
+                console.log('Preserving audio track:', originalAudioTrack.label, 'enabled state:', originalAudioEnabled);
+            }
+        }
 
         try {
-            let originalAudioTrack = null;
-            let originalAudioEnabled = currentAudioState;
-
-            if (localStreamRef.current) {
-                const audioTracks = localStreamRef.current.getAudioTracks();
-                if (audioTracks.length > 0) {
-                    originalAudioTrack = audioTracks[0];
-                    // Store the CURRENT enabled state of the track before any changes
-                    originalAudioEnabled = originalAudioTrack.enabled;
-                    console.log('Preserving audio track:', originalAudioTrack.label, 'original enabled state:', originalAudioEnabled, 'current UI audio state:', currentAudioState);
-                }
-            }
-
             const videoWasEnabled = video;
 
+            // Stop only video tracks
             if (localStreamRef.current) {
                 localStreamRef.current.getVideoTracks().forEach(track => {
                     console.log('Stopping video track:', track.label);
@@ -746,6 +744,7 @@ export const VideoMeet = () => {
                 });
             }
 
+            // Get new video stream
             const newVideoStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: 1280,
@@ -758,14 +757,13 @@ export const VideoMeet = () => {
             const newVideoTrack = newVideoStream.getVideoTracks()[0];
             newVideoTrack.enabled = videoWasEnabled;
 
+            // Create fresh stream with new video and SAME audio track
             const freshStream = new MediaStream();
             freshStream.addTrack(newVideoTrack);
 
             if (originalAudioTrack) {
-                // CRITICAL: Set the enabled state BEFORE adding to stream
-                originalAudioTrack.enabled = originalAudioEnabled;
                 freshStream.addTrack(originalAudioTrack);
-                console.log('Audio track added to new stream, enabled explicitly set to:', originalAudioEnabled);
+                console.log('Added original audio track to new stream, enabled:', originalAudioEnabled);
             }
 
             localStreamRef.current = freshStream;
@@ -774,22 +772,26 @@ export const VideoMeet = () => {
                 localVideoRef.current.srcObject = freshStream;
             }
 
-            // Replace stream for peers
-            await replaceStreamForPeers(freshStream, { skipAudio: false });
+            // Replace ONLY video track for peers, skip audio track replacement completely
+            console.log('Replacing only video track for peers, skipping audio');
+            const replacePromises = Object.entries(connectionsRef.current).map(async ([id, peerConnection]) => {
+                if (id === socketIdRef.current) return;
 
-            // CRITICAL: Force the audio track state again after peer replacement with a small delay
-            // This ensures the state is preserved even after renegotiation
-            setTimeout(() => {
-                if (originalAudioTrack && localStreamRef.current) {
-                    const currentAudioTracks = localStreamRef.current.getAudioTracks();
-                    currentAudioTracks.forEach(track => {
-                        if (track.id === originalAudioTrack.id) {
-                            track.enabled = originalAudioEnabled;
-                            console.log('Audio track enabled state re-confirmed after timeout:', originalAudioEnabled);
-                        }
-                    });
+                try {
+                    const senders = peerConnection.getSenders();
+                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
+                    if (videoSender && newVideoTrack) {
+                        console.log(`Replacing ONLY video track for peer ${id}`);
+                        await videoSender.replaceTrack(newVideoTrack);
+                    }
+                    // DO NOT touch audio sender at all
+                } catch (e) {
+                    console.error(`Error replacing video track for peer ${id}:`, e);
                 }
-            }, 200);
+            });
+
+            await Promise.all(replacePromises);
 
             setCameraFacingMode(newFacingMode);
 
@@ -798,15 +800,16 @@ export const VideoMeet = () => {
         } catch (error) {
             console.error('Camera switch error:', error);
 
+            // Fallback without exact facingMode
             try {
-                let originalAudioTrack = null;
-                let originalAudioEnabled = currentAudioState;
+                let fallbackAudioTrack = null;
+                let fallbackAudioEnabled = false;
 
                 if (localStreamRef.current) {
                     const audioTracks = localStreamRef.current.getAudioTracks();
                     if (audioTracks.length > 0) {
-                        originalAudioTrack = audioTracks[0];
-                        originalAudioEnabled = originalAudioTrack.enabled;
+                        fallbackAudioTrack = audioTracks[0];
+                        fallbackAudioEnabled = fallbackAudioTrack.enabled;
                     }
                 }
 
@@ -831,10 +834,8 @@ export const VideoMeet = () => {
                 const freshStream = new MediaStream();
                 freshStream.addTrack(newVideoTrack);
 
-                if (originalAudioTrack) {
-                    // CRITICAL: Set enabled state BEFORE adding to stream
-                    originalAudioTrack.enabled = originalAudioEnabled;
-                    freshStream.addTrack(originalAudioTrack);
+                if (fallbackAudioTrack) {
+                    freshStream.addTrack(fallbackAudioTrack);
                 }
 
                 localStreamRef.current = freshStream;
@@ -843,20 +844,23 @@ export const VideoMeet = () => {
                     localVideoRef.current.srcObject = freshStream;
                 }
 
-                await replaceStreamForPeers(freshStream, { skipAudio: false });
+                // Replace ONLY video track
+                const replacePromises = Object.entries(connectionsRef.current).map(async ([id, peerConnection]) => {
+                    if (id === socketIdRef.current) return;
 
-                // CRITICAL: Force the audio track state again with delay
-                setTimeout(() => {
-                    if (originalAudioTrack && localStreamRef.current) {
-                        const currentAudioTracks = localStreamRef.current.getAudioTracks();
-                        currentAudioTracks.forEach(track => {
-                            if (track.id === originalAudioTrack.id) {
-                                track.enabled = originalAudioEnabled;
-                                console.log('Audio track enabled state re-confirmed (fallback) after timeout:', originalAudioEnabled);
-                            }
-                        });
+                    try {
+                        const senders = peerConnection.getSenders();
+                        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
+                        if (videoSender && newVideoTrack) {
+                            await videoSender.replaceTrack(newVideoTrack);
+                        }
+                    } catch (e) {
+                        console.error(`Error replacing video track for peer ${id}:`, e);
                     }
-                }, 200);
+                });
+
+                await Promise.all(replacePromises);
 
                 setCameraFacingMode(newFacingMode);
 
@@ -873,7 +877,7 @@ export const VideoMeet = () => {
                 console.log('Camera switch complete, flags cleared');
             }, 100);
         }
-    }, [cameraFacingMode, screen, video, audio, videoAvailable, isSwitchingCamera, replaceStreamForPeers]);
+    }, [cameraFacingMode, screen, video, audio, videoAvailable, isSwitchingCamera]);
 
 
     const handleChat = useCallback(() => {
