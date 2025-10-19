@@ -57,6 +57,7 @@ export const VideoMeet = () => {
     const [cameraFacingMode, setCameraFacingMode] = useState('user');
     const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
     const videoRefs = useRef({});
+    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
 
     const createSilentAudioTrack = useCallback(() => {
         const ctx = new AudioContext();
@@ -695,7 +696,18 @@ export const VideoMeet = () => {
     }, []);
 
     const handleCameraToggle = useCallback(async () => {
-        if (screen || isScreenSharingRef.current || !videoAvailable) return;
+        if (screen || isScreenSharingRef.current || !videoAvailable || !video) {
+            console.log('Camera toggle blocked - screen:', screen, 'videoAvailable:', videoAvailable, 'video:', video);
+            return;
+        }
+
+        // Prevent concurrent camera switches
+        if (isSwitchingCamera) {
+            console.log('Camera switch already in progress, ignoring');
+            return;
+        }
+
+        setIsSwitchingCamera(true);
 
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
@@ -765,11 +777,6 @@ export const VideoMeet = () => {
             // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
-            // CRITICAL FIX: Sync React audio state with actual track state
-            if (originalAudioTrack) {
-                setAudio(originalAudioTrack.enabled);
-            }
-
             console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', originalAudioTrack?.enabled);
 
         } catch (error) {
@@ -824,18 +831,16 @@ export const VideoMeet = () => {
                 await replaceStreamForPeers(freshStream);
                 setCameraFacingMode(newFacingMode);
 
-                // CRITICAL FIX: Sync React audio state with actual track state in fallback
-                if (originalAudioTrack) {
-                    setAudio(originalAudioTrack.enabled);
-                }
-
                 console.log('Camera switched (fallback) successfully');
 
             } catch (fallbackError) {
                 console.error('Fallback camera switch failed:', fallbackError);
             }
+        } finally {
+            setIsSwitchingCamera(false);
         }
-    }, [cameraFacingMode, screen, video, videoAvailable, replaceStreamForPeers]);
+    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, replaceStreamForPeers]);
+
 
     const handleChat = useCallback(() => {
         setShowModal(prev => {
@@ -924,6 +929,12 @@ export const VideoMeet = () => {
         if (!askForUsername && localStreamRef.current) {
             const audioTracks = localStreamRef.current.getAudioTracks();
 
+            // Skip if we're switching cameras to avoid glitches
+            if (isSwitchingCamera) {
+                console.log('Skipping audio track update during camera switch');
+                return;
+            }
+
             audioTracks.forEach(track => {
                 if (track.label && !track.label.includes('MediaStreamAudioDestinationNode')) {
                     track.enabled = audio;
@@ -933,14 +944,14 @@ export const VideoMeet = () => {
 
             broadcastMediaState();
         }
-    }, [audio, askForUsername, broadcastMediaState]);
+    }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState]);
 
     useEffect(() => {
-        if (!askForUsername && !screen && !isScreenSharingRef.current) {
+        if (!askForUsername && !screen && !isScreenSharingRef.current && !isSwitchingCamera) {
             console.log('Switching camera to:', cameraFacingMode);
             getUserMedia();
         }
-    }, [cameraFacingMode, askForUsername, screen, getUserMedia]);
+    }, [cameraFacingMode, askForUsername, screen, isSwitchingCamera, getUserMedia]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
