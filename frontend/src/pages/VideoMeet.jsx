@@ -714,16 +714,17 @@ export const VideoMeet = () => {
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
 
+        // Capture current audio state from the UI state, not the track
+        const currentAudioState = audio;
+
         try {
             let originalAudioTrack = null;
-            let audioWasEnabled = false;
 
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks();
                 if (audioTracks.length > 0) {
                     originalAudioTrack = audioTracks[0];
-                    audioWasEnabled = originalAudioTrack.enabled;
-                    console.log('Preserving audio track:', originalAudioTrack.label, 'enabled:', audioWasEnabled);
+                    console.log('Preserving audio track:', originalAudioTrack.label, 'current UI audio state:', currentAudioState);
                 }
             }
 
@@ -753,8 +754,9 @@ export const VideoMeet = () => {
 
             if (originalAudioTrack) {
                 freshStream.addTrack(originalAudioTrack);
-                originalAudioTrack.enabled = audioWasEnabled;
-                console.log('Audio track added to new stream, enabled state preserved:', originalAudioTrack.enabled);
+                // Set the audio track enabled state to match current UI state
+                originalAudioTrack.enabled = currentAudioState;
+                console.log('Audio track added to new stream, enabled set to:', currentAudioState);
             }
 
             localStreamRef.current = freshStream;
@@ -767,25 +769,18 @@ export const VideoMeet = () => {
 
             setCameraFacingMode(newFacingMode);
 
-            if (originalAudioTrack && audioWasEnabled !== audio) {
-                setAudio(audioWasEnabled);
-                console.log('Synced audio state to match preserved track state:', audioWasEnabled);
-            }
-
-            console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', originalAudioTrack?.enabled);
+            console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', currentAudioState);
 
         } catch (error) {
             console.error('Camera switch error:', error);
 
             try {
                 let originalAudioTrack = null;
-                let audioWasEnabled = false;
 
                 if (localStreamRef.current) {
                     const audioTracks = localStreamRef.current.getAudioTracks();
                     if (audioTracks.length > 0) {
                         originalAudioTrack = audioTracks[0];
-                        audioWasEnabled = originalAudioTrack.enabled;
                     }
                 }
 
@@ -812,7 +807,8 @@ export const VideoMeet = () => {
 
                 if (originalAudioTrack) {
                     freshStream.addTrack(originalAudioTrack);
-                    originalAudioTrack.enabled = audioWasEnabled;
+                    // Set the audio track enabled state to match current UI state
+                    originalAudioTrack.enabled = currentAudioState;
                 }
 
                 localStreamRef.current = freshStream;
@@ -823,11 +819,6 @@ export const VideoMeet = () => {
 
                 await replaceStreamForPeers(freshStream);
                 setCameraFacingMode(newFacingMode);
-
-                if (originalAudioTrack && audioWasEnabled !== audio) {
-                    setAudio(audioWasEnabled);
-                    console.log('Synced audio state to match preserved track state (fallback):', audioWasEnabled);
-                }
 
                 console.log('Camera switched (fallback) successfully');
 
