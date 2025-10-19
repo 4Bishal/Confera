@@ -537,40 +537,52 @@ export const VideoMeet = () => {
     }, [stopLocalStream]);
 
     const getPermissions = useCallback(async () => {
+        // Check video permission separately
         try {
             const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
             setVideoAvailable(true);
             videoStream.getTracks().forEach(track => track.stop());
+            console.log('Video permission granted');
+        } catch (error) {
+            console.log("Video permission denied or not available:", error.name);
+            setVideoAvailable(false);
+        }
 
+        // Check audio permission separately
+        try {
             const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setAudioAvailable(true);
             audioStream.getTracks().forEach(track => track.stop());
-
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-            const hasScreenShare = !isMobile && !!(navigator.mediaDevices.getDisplayMedia ||
-                navigator.getDisplayMedia ||
-                (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
-
-            setScreenAvailable(hasScreenShare);
-
-            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-                try {
-                    const devices = await navigator.mediaDevices.enumerateDevices();
-                    const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                    setHasMultipleCameras(videoDevices.length > 1);
-                    console.log(`Found ${videoDevices.length} camera(s)`);
-                } catch (e) {
-                    console.log('Could not enumerate devices:', e);
-                    setHasMultipleCameras(false);
-                }
-            }
-
-            if (isMobile) {
-                console.log('Mobile device detected - screen sharing disabled');
-            }
+            console.log('Audio permission granted');
         } catch (error) {
-            console.error("Permission error:", error);
+            console.log("Audio permission denied or not available:", error.name);
+            setAudioAvailable(false);
+        }
+
+        // Check screen sharing availability
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        const hasScreenShare = !isMobile && !!(navigator.mediaDevices.getDisplayMedia ||
+            navigator.getDisplayMedia ||
+            (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+
+        setScreenAvailable(hasScreenShare);
+
+        // Check for multiple cameras
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                setHasMultipleCameras(videoDevices.length > 1);
+                console.log(`Found ${videoDevices.length} camera(s)`);
+            } catch (e) {
+                console.log('Could not enumerate devices:', e);
+                setHasMultipleCameras(false);
+            }
+        }
+
+        if (isMobile) {
+            console.log('Mobile device detected - screen sharing disabled');
         }
     }, []);
 
@@ -600,7 +612,7 @@ export const VideoMeet = () => {
             console.log('Getting user media for the first time on join');
             getUserMedia();
         }
-    }, [askForUsername]);
+    }, [askForUsername, getUserMedia]);
 
     useEffect(() => {
         if (!askForUsername) {
@@ -678,8 +690,23 @@ export const VideoMeet = () => {
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
 
+        // Capture current audio state BEFORE any async operations
+        const currentAudioState = audio;
+        const currentVideoState = video;
+        console.log('Preserving audio state:', currentAudioState, 'video state:', currentVideoState);
+
         try {
-            // Stop current video tracks
+            // Get the current audio track to preserve it BEFORE stopping video
+            let audioTrack = null;
+            if (localStreamRef.current) {
+                const audioTracks = localStreamRef.current.getAudioTracks();
+                if (audioTracks.length > 0) {
+                    audioTrack = audioTracks[0];
+                    console.log('Preserved audio track, current enabled state:', audioTrack.enabled);
+                }
+            }
+
+            // Stop current video tracks only
             if (localStreamRef.current) {
                 localStreamRef.current.getVideoTracks().forEach(track => track.stop());
             }
@@ -694,25 +721,16 @@ export const VideoMeet = () => {
                 audio: false // Don't re-request audio
             });
 
-            // Get the current audio track to preserve it WITH ITS STATE
-            let audioTrack = null;
-            if (localStreamRef.current) {
-                const audioTracks = localStreamRef.current.getAudioTracks();
-                if (audioTracks.length > 0) {
-                    audioTrack = audioTracks[0];
-                }
-            }
-
             // Create new stream with new video and existing audio
             const newStream = new MediaStream();
             stream.getVideoTracks().forEach(track => {
-                track.enabled = video; // Maintain current video state
+                track.enabled = currentVideoState; // Use captured video state
                 newStream.addTrack(track);
             });
 
             if (audioTrack) {
-                // IMPORTANT: Preserve the audio track's enabled state
-                audioTrack.enabled = audio;
+                // Keep the audio track's existing enabled state - don't modify it
+                console.log('Adding audio track with preserved state:', audioTrack.enabled);
                 newStream.addTrack(audioTrack);
             }
 
@@ -728,11 +746,20 @@ export const VideoMeet = () => {
             // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
-            console.log('Camera switched successfully to', newFacingMode, 'with audio enabled:', audio);
+            console.log('Camera switched successfully to', newFacingMode, 'with audio state preserved:', audioTrack?.enabled);
         } catch (error) {
             console.error('Error switching camera:', error);
             // If exact facing mode fails, try without exact
             try {
+                // Get the current audio track to preserve it
+                let audioTrack = null;
+                if (localStreamRef.current) {
+                    const audioTracks = localStreamRef.current.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        audioTrack = audioTracks[0];
+                    }
+                }
+
                 if (localStreamRef.current) {
                     localStreamRef.current.getVideoTracks().forEach(track => track.stop());
                 }
@@ -746,23 +773,14 @@ export const VideoMeet = () => {
                     audio: false
                 });
 
-                let audioTrack = null;
-                if (localStreamRef.current) {
-                    const audioTracks = localStreamRef.current.getAudioTracks();
-                    if (audioTracks.length > 0) {
-                        audioTrack = audioTracks[0];
-                    }
-                }
-
                 const newStream = new MediaStream();
                 stream.getVideoTracks().forEach(track => {
-                    track.enabled = video;
+                    track.enabled = currentVideoState;
                     newStream.addTrack(track);
                 });
 
                 if (audioTrack) {
-                    // IMPORTANT: Preserve the audio track's enabled state
-                    audioTrack.enabled = audio;
+                    // Keep the audio track's existing enabled state - don't modify it
                     newStream.addTrack(audioTrack);
                 }
 
@@ -774,7 +792,7 @@ export const VideoMeet = () => {
                 await replaceStreamForPeers(newStream);
                 setCameraFacingMode(newFacingMode);
 
-                console.log('Camera switched successfully (fallback) to', newFacingMode, 'with audio enabled:', audio);
+                console.log('Camera switched successfully (fallback) to', newFacingMode, 'with audio state preserved');
             } catch (fallbackError) {
                 console.error('Fallback camera switch also failed:', fallbackError);
             }
@@ -909,25 +927,48 @@ export const VideoMeet = () => {
                             placeholder="Your name"
                             className="w-full px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-black bg-white shadow-lg transition-all"
                         />
-                        {hasMultipleCameras && (
-                            <div className="w-full flex items-center gap-2">
+
+                        <div className="w-full space-y-3">
+                            <div className="flex items-center justify-between p-4 bg-white/10 rounded-xl border border-white/20">
+                                <div className="flex items-center gap-3">
+                                    <Video size={20} className="text-white" />
+                                    <div>
+                                        <p className="text-white font-medium text-sm">Camera</p>
+                                        <p className="text-gray-400 text-xs">
+                                            {videoAvailable ? 'Permission granted' : 'Not available or denied'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className={`w-3 h-3 rounded-full ${videoAvailable ? 'bg-green-500' : 'bg-red-500'}`} />
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-white/10 rounded-xl border border-white/20">
+                                <div className="flex items-center gap-3">
+                                    <Mic size={20} className="text-white" />
+                                    <div>
+                                        <p className="text-white font-medium text-sm">Microphone</p>
+                                        <p className="text-gray-400 text-xs">
+                                            {audioAvailable ? 'Permission granted' : 'Not available or denied'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className={`w-3 h-3 rounded-full ${audioAvailable ? 'bg-green-500' : 'bg-red-500'}`} />
+                            </div>
+
+                            {hasMultipleCameras && videoAvailable && (
                                 <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
                                     onClick={handleCameraToggle}
-                                    disabled={screen || !videoAvailable}
-                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all ${screen || !videoAvailable
-                                        ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
-                                        : 'bg-gray-200 text-black hover:bg-gray-300'
-                                        }`}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all bg-white/10 hover:bg-white/20 border border-white/20 text-white"
                                 >
-                                    <SwitchCamera size={18} className="md:w-5 md:h-5" />
+                                    <SwitchCamera size={18} />
                                     <span className="text-sm font-medium">
                                         Switch to {cameraFacingMode === 'user' ? 'Back' : 'Front'} Camera
                                     </span>
                                 </motion.button>
-                            </div>
-                        )}
+                            )}
+                        </div>
 
                         <motion.button
                             whileHover={{ scale: 1.02 }}
@@ -938,6 +979,14 @@ export const VideoMeet = () => {
                         >
                             Join Now
                         </motion.button>
+
+                        {!videoAvailable && !audioAvailable && (
+                            <div className="text-center p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                                <p className="text-yellow-400 text-xs">
+                                    ⚠️ No camera or microphone access. You'll join with audio/video off.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </motion.div>
             ) : (
@@ -994,7 +1043,7 @@ export const VideoMeet = () => {
                                                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
                                                     <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
                                                         <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.toUpperCase() || 'U'}
+                                                            {video.username?.charAt(0).toUpperCase() || 'U'}
                                                         </span>
                                                     </div>
                                                     <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
@@ -1053,9 +1102,9 @@ export const VideoMeet = () => {
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={handleVideo}
-                            disabled={screen}
-                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                            disabled={screen || !videoAvailable}
+                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
+                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
                                 : video
                                     ? 'bg-gray-200 text-black hover:bg-gray-300'
                                     : 'bg-orange-500 text-white hover:bg-orange-600'
@@ -1068,7 +1117,13 @@ export const VideoMeet = () => {
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={handleAudio}
-                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${audio ? 'bg-gray-200 text-black hover:bg-gray-300' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
+                            disabled={!audioAvailable}
+                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${!audioAvailable
+                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                : audio
+                                    ? 'bg-gray-200 text-black hover:bg-gray-300'
+                                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                                }`}
                         >
                             {audio ? <Mic size={18} className="md:w-5 md:h-5" /> : <MicOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
