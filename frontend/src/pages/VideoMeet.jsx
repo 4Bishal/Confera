@@ -35,6 +35,7 @@ export const VideoMeet = () => {
     const isMountedRef = useRef(true);
     const isScreenSharingRef = useRef(false);
     const localStreamRef = useRef(null);
+    const persistentAudioTrackRef = useRef(null);
     const chatEndRef = useRef();
 
     const [videoAvailable, setVideoAvailable] = useState(true);
@@ -78,7 +79,6 @@ export const VideoMeet = () => {
     }, [createBlackVideoTrack, createSilentAudioTrack]);
 
     const renegotiateWithPeers = useCallback(async () => {
-        // Add a small delay to avoid simultaneous renegotiation from multiple peers
         await new Promise(resolve => setTimeout(resolve, 100));
 
         const renegotiatePromises = Object.entries(connectionsRef.current).map(async ([id, connection]) => {
@@ -86,7 +86,6 @@ export const VideoMeet = () => {
 
             const currentState = connection.signalingState;
 
-            // Only create offer if we're in stable state
             if (currentState !== 'stable') {
                 console.log(`Skipping renegotiation for peer ${id}, state: ${currentState}`);
                 return;
@@ -122,13 +121,11 @@ export const VideoMeet = () => {
                 const videoTrack = newStream.getVideoTracks()[0];
                 const audioTrack = newStream.getAudioTracks()[0];
 
-                // Replace video track
                 const videoSender = senders.find(s => s.track && s.track.kind === 'video');
                 if (videoSender && videoTrack) {
                     console.log(`Replacing video track for peer ${id}, enabled:`, videoTrack.enabled);
                     await videoSender.replaceTrack(videoTrack);
 
-                    // Force the sender parameters to refresh
                     const params = videoSender.getParameters();
                     if (!params.encodings) {
                         params.encodings = [{}];
@@ -136,7 +133,6 @@ export const VideoMeet = () => {
                     await videoSender.setParameters(params);
                 }
 
-                // Replace audio track
                 const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
                 if (audioSender && audioTrack) {
                     console.log(`Replacing audio track for peer ${id}, enabled:`, audioTrack.enabled);
@@ -147,14 +143,15 @@ export const VideoMeet = () => {
             }
         }
 
-        // Force renegotiation after track replacement
         console.log('Starting renegotiation...');
         renegotiateWithPeers();
     }, [renegotiateWithPeers]);
 
     const stopLocalStream = useCallback(() => {
         if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach(track => track.stop());
+            localStreamRef.current.getVideoTracks().forEach(track => {
+                track.stop();
+            });
             localStreamRef.current = null;
         }
         if (localVideoRef.current) {
@@ -184,7 +181,6 @@ export const VideoMeet = () => {
     }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers]);
 
     const getUserMedia = useCallback(async () => {
-        // Always request both video and audio if available
         const requestVideo = videoAvailable;
         const requestAudio = audioAvailable;
 
@@ -209,18 +205,21 @@ export const VideoMeet = () => {
 
                 isScreenSharingRef.current = false;
 
-                // Set initial enabled state based on current video/audio state
+                // Store audio track for later use during screen sharing
+                const audioTracks = stream.getAudioTracks();
+                if (audioTracks.length > 0) {
+                    persistentAudioTrackRef.current = audioTracks[0];
+                }
+
+                // Set initial enabled state ONLY based on media availability, not toggle state
                 stream.getVideoTracks().forEach(track => {
-                    track.enabled = video;
-                    console.log('Video track enabled:', video);
+                    track.enabled = true; // Always start enabled
                 });
 
                 stream.getAudioTracks().forEach(track => {
-                    track.enabled = audio;
-                    console.log('Audio track enabled:', audio);
+                    track.enabled = true; // Always start enabled
                 });
 
-                // Replace stream for all peers
                 console.log('Replacing stream for peers with new getUserMedia stream');
                 await replaceStreamForPeers(stream);
 
@@ -233,7 +232,6 @@ export const VideoMeet = () => {
                 console.error("getUserMedia error:", e);
             }
         } else {
-            // No media available, use black/silent
             stopLocalStream();
             const blackSilence = createBlackSilenceStream();
             localStreamRef.current = blackSilence;
@@ -243,7 +241,7 @@ export const VideoMeet = () => {
             isScreenSharingRef.current = false;
             await replaceStreamForPeers(blackSilence);
         }
-    }, [video, audio, videoAvailable, audioAvailable, stopLocalStream, createBlackSilenceStream, replaceStreamForPeers, handleTrackEnded]);
+    }, [videoAvailable, audioAvailable, stopLocalStream, createBlackSilenceStream, replaceStreamForPeers, handleTrackEnded]);
 
     const getDisplayMedia = useCallback(async () => {
         if (screen) {
@@ -263,10 +261,27 @@ export const VideoMeet = () => {
                             width: { ideal: 1920, max: 1920 },
                             height: { ideal: 1080, max: 1080 }
                         },
-                        audio: true
+                        audio: false
                     });
 
+                    // Get the current audio track before stopping the stream
+                    let audioTrackToUse = null;
+                    if (localStreamRef.current) {
+                        const audioTracks = localStreamRef.current.getAudioTracks();
+                        if (audioTracks.length > 0) {
+                            audioTrackToUse = audioTracks[0];
+                            persistentAudioTrackRef.current = audioTrackToUse;
+                        }
+                    }
+
                     stopLocalStream();
+
+                    // Add the audio track to the screen stream
+                    if (audioTrackToUse) {
+                        stream.addTrack(audioTrackToUse);
+                        console.log('Audio track preserved during screen share');
+                    }
+
                     localStreamRef.current = stream;
                     if (localVideoRef.current) {
                         localVideoRef.current.srcObject = stream;
@@ -275,7 +290,7 @@ export const VideoMeet = () => {
 
                     await replaceStreamForPeers(stream);
 
-                    stream.getTracks().forEach(track => {
+                    stream.getVideoTracks().forEach(track => {
                         track.onended = () => {
                             setScreen(false);
                             isScreenSharingRef.current = false;
@@ -311,9 +326,7 @@ export const VideoMeet = () => {
 
             console.log(`Received SDP ${desc.type} from ${fromId}, current state: ${currentState}`);
 
-            // Handle offer-collision (both sides send offer at same time)
             if (desc.type === "offer" && (currentState === "have-local-offer" || currentState === "stable")) {
-                // If we're also making an offer, use a tiebreaker
                 const isPolite = socketIdRef.current < fromId;
 
                 if (currentState === "have-local-offer" && !isPolite) {
@@ -322,7 +335,6 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Only set remote description if it makes sense
             if (desc.type === "answer" && currentState !== "have-local-offer") {
                 console.log(`Ignoring answer from ${fromId}, we're not expecting one (state: ${currentState})`);
                 return;
@@ -430,7 +442,6 @@ export const VideoMeet = () => {
 
                         console.log(`Received track from ${socketListId}:`, event.track.kind, event.track.enabled);
 
-                        // Listen for track enabled/disabled changes
                         event.track.onunmute = () => {
                             console.log(`Track ${event.track.kind} unmuted for ${socketListId}`);
                             setVideos(videos => videos.map(v =>
@@ -477,13 +488,11 @@ export const VideoMeet = () => {
                     });
                 });
 
-                // Initialize media states for all existing users when joining
                 if (id === socketIdRef.current && existingMediaStates) {
                     setRemoteUserStates(existingMediaStates);
                 }
 
                 if (id === socketIdRef.current) {
-                    // Broadcast initial media state when joining
                     setTimeout(() => {
                         broadcastMediaState();
                     }, 500);
@@ -534,10 +543,8 @@ export const VideoMeet = () => {
             setAudioAvailable(true);
             audioStream.getTracks().forEach(track => track.stop());
 
-            // Check if device is mobile
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-            // Screen sharing is typically not available on mobile devices
             const hasScreenShare = !isMobile && !!(navigator.mediaDevices.getDisplayMedia ||
                 navigator.getDisplayMedia ||
                 (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
@@ -573,20 +580,27 @@ export const VideoMeet = () => {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [askForUsername, cleanupCall]);
 
+    // Only get media once when joining (no dependencies on video/audio state)
     useEffect(() => {
-        // Only get user media ONCE when joining the call
-        if (!askForUsername && !screen && !isScreenSharingRef.current && !localStreamRef.current) {
+        if (!askForUsername && !localStreamRef.current && !isScreenSharingRef.current) {
             console.log('Getting user media for the first time on join');
             getUserMedia();
         }
-    }, [askForUsername, screen, getUserMedia]);
+    }, [askForUsername]); // ONLY depend on askForUsername to avoid re-triggering
 
+    // Only handle screen sharing when screen state changes
     useEffect(() => {
         if (!askForUsername) {
             getDisplayMedia();
+        }
+    }, [screen, askForUsername, getDisplayMedia]);
+
+    // Broadcast media state independently
+    useEffect(() => {
+        if (!askForUsername) {
             broadcastMediaState();
         }
-    }, [screen, askForUsername, getDisplayMedia, broadcastMediaState]);
+    }, [video, audio, screen, askForUsername, broadcastMediaState]);
 
     useEffect(() => {
         if (chatEndRef.current) {
@@ -594,14 +608,12 @@ export const VideoMeet = () => {
         }
     }, [messages]);
 
-    // Monitor remote user state changes and refresh video elements
     useEffect(() => {
         videos.forEach(video => {
             const videoElement = videoRefs.current[video.socketId];
             const userState = remoteUserStates[video.socketId];
 
             if (videoElement && video.stream && userState) {
-                // When video is turned back on, ensure the video element is playing
                 if (userState.video === true || userState.screen === true) {
                     if (videoElement.srcObject !== video.stream) {
                         console.log(`Refreshing video element for ${video.socketId}`);
@@ -618,7 +630,6 @@ export const VideoMeet = () => {
     const connect = useCallback(() => {
         setAskForUsername(false);
 
-        // Always try to get real media on connect
         if (videoAvailable || audioAvailable) {
             setVideo(videoAvailable);
             setAudio(audioAvailable);
@@ -717,28 +728,37 @@ export const VideoMeet = () => {
         return { cols: 4, rows: Math.ceil(count / 4) };
     }, [videos.length]);
 
-    // Separate useEffect for handling video/audio toggle
+    // Handle video toggle (only when not screen sharing)
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !screen) {
             const videoTracks = localStreamRef.current.getVideoTracks();
-            const audioTracks = localStreamRef.current.getAudioTracks();
 
-            // Toggle video track enabled state
-            if (videoTracks.length > 0 && videoTracks[0].label !== 'canvas') {
-                videoTracks[0].enabled = video;
-                console.log('Set video track enabled to:', video);
-            }
+            videoTracks.forEach(track => {
+                if (track.label && !track.label.includes('canvas')) {
+                    track.enabled = video;
+                    console.log('Set video track enabled to:', video);
+                }
+            });
 
-            // Toggle audio track enabled state
-            if (audioTracks.length > 0 && audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
-                audioTracks[0].enabled = audio;
-                console.log('Set audio track enabled to:', audio);
-            }
-
-            // Broadcast the state change
             broadcastMediaState();
         }
-    }, [video, audio, askForUsername, screen, broadcastMediaState]);
+    }, [video, askForUsername, screen, broadcastMediaState]);
+
+    // Handle audio toggle (works anytime, including screen sharing)
+    useEffect(() => {
+        if (!askForUsername && localStreamRef.current) {
+            const audioTracks = localStreamRef.current.getAudioTracks();
+
+            audioTracks.forEach(track => {
+                if (track.label && !track.label.includes('MediaStreamAudioDestinationNode')) {
+                    track.enabled = audio;
+                    console.log('Set audio track enabled to:', audio);
+                }
+            });
+
+            broadcastMediaState();
+        }
+    }, [audio, askForUsername, broadcastMediaState]);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
