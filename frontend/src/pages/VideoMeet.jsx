@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router';
+import server from '../environment';
 
 const PEER_CONFIG = {
     iceServers: [
@@ -389,7 +390,7 @@ export const VideoMeet = () => {
     }, [video, audio, screen]);
 
     const connectToSocketServer = useCallback(() => {
-        socketRef.current = io("http://localhost:5000", {
+        socketRef.current = io(server, {
             secure: false,
             transports: ['websocket', 'polling']
         });
