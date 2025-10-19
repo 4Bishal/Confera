@@ -777,6 +777,13 @@ export const VideoMeet = () => {
             // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
+            // CRITICAL FIX: Sync React state with preserved audio track state
+            // This prevents the audio useEffect from toggling the audio after camera switch
+            if (originalAudioTrack && audioWasEnabled !== audio) {
+                setAudio(audioWasEnabled);
+                console.log('Synced audio state to match preserved track state:', audioWasEnabled);
+            }
+
             console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', originalAudioTrack?.enabled);
 
         } catch (error) {
@@ -831,6 +838,12 @@ export const VideoMeet = () => {
                 await replaceStreamForPeers(freshStream);
                 setCameraFacingMode(newFacingMode);
 
+                // CRITICAL FIX: Sync React state with preserved audio track state (fallback)
+                if (originalAudioTrack && audioWasEnabled !== audio) {
+                    setAudio(audioWasEnabled);
+                    console.log('Synced audio state to match preserved track state (fallback):', audioWasEnabled);
+                }
+
                 console.log('Camera switched (fallback) successfully');
 
             } catch (fallbackError) {
@@ -839,7 +852,7 @@ export const VideoMeet = () => {
         } finally {
             setIsSwitchingCamera(false);
         }
-    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, replaceStreamForPeers]);
+    }, [cameraFacingMode, screen, video, audio, videoAvailable, isSwitchingCamera, replaceStreamForPeers]);
 
 
     const handleChat = useCallback(() => {
