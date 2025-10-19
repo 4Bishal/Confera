@@ -765,6 +765,11 @@ export const VideoMeet = () => {
             // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
+            // CRITICAL FIX: Sync React audio state with actual track state
+            if (originalAudioTrack) {
+                setAudio(originalAudioTrack.enabled);
+            }
+
             console.log('Camera switched successfully. Video enabled:', newVideoTrack.enabled, 'Audio enabled:', originalAudioTrack?.enabled);
 
         } catch (error) {
@@ -818,6 +823,11 @@ export const VideoMeet = () => {
 
                 await replaceStreamForPeers(freshStream);
                 setCameraFacingMode(newFacingMode);
+
+                // CRITICAL FIX: Sync React audio state with actual track state in fallback
+                if (originalAudioTrack) {
+                    setAudio(originalAudioTrack.enabled);
+                }
 
                 console.log('Camera switched (fallback) successfully');
 
