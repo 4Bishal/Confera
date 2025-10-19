@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { io } from "socket.io-client";
 import {
@@ -53,6 +54,8 @@ export const VideoMeet = () => {
     const [videos, setVideos] = useState([]);
     const [remoteUserStates, setRemoteUserStates] = useState({});
     const [showCopyFeedback, setShowCopyFeedback] = useState(false);
+    const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' for front, 'environment' for back
+    const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
     const videoRefs = useRef({});
 
     const createSilentAudioTrack = useCallback(() => {
@@ -186,9 +189,13 @@ export const VideoMeet = () => {
 
         if (requestVideo || requestAudio) {
             try {
-                console.log('Requesting getUserMedia with video:', requestVideo, 'audio:', requestAudio);
+                console.log('Requesting getUserMedia with video:', requestVideo, 'audio:', requestAudio, 'camera:', cameraFacingMode);
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: requestVideo ? { width: 1280, height: 720 } : false,
+                    video: requestVideo ? {
+                        width: 1280,
+                        height: 720,
+                        facingMode: cameraFacingMode // Use selected camera
+                    } : false,
                     audio: requestAudio ? {
                         echoCancellation: true,
                         noiseSuppression: true,
@@ -241,7 +248,7 @@ export const VideoMeet = () => {
             isScreenSharingRef.current = false;
             await replaceStreamForPeers(blackSilence);
         }
-    }, [videoAvailable, audioAvailable, stopLocalStream, createBlackSilenceStream, replaceStreamForPeers, handleTrackEnded]);
+    }, [videoAvailable, audioAvailable, cameraFacingMode, stopLocalStream, createBlackSilenceStream, replaceStreamForPeers, handleTrackEnded]);
 
     const getDisplayMedia = useCallback(async () => {
         if (screen) {
@@ -551,6 +558,19 @@ export const VideoMeet = () => {
 
             setScreenAvailable(hasScreenShare);
 
+            // Check for multiple cameras
+            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                    setHasMultipleCameras(videoDevices.length > 1);
+                    console.log(`Found ${videoDevices.length} camera(s)`);
+                } catch (e) {
+                    console.log('Could not enumerate devices:', e);
+                    setHasMultipleCameras(false);
+                }
+            }
+
             if (isMobile) {
                 console.log('Mobile device detected - screen sharing disabled');
             }
@@ -660,6 +680,10 @@ export const VideoMeet = () => {
         setScreen(prev => !prev);
     }, []);
 
+    const handleCameraToggle = useCallback(() => {
+        setCameraFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    }, []);
+
     const handleChat = useCallback(() => {
         setShowModal(prev => {
             if (!prev) {
@@ -760,6 +784,14 @@ export const VideoMeet = () => {
         }
     }, [audio, askForUsername, broadcastMediaState]);
 
+    // Effect to handle camera facing mode changes
+    useEffect(() => {
+        if (!askForUsername && !screen && !isScreenSharingRef.current) {
+            console.log('Switching camera to:', cameraFacingMode);
+            getUserMedia();
+        }
+    }, [cameraFacingMode, askForUsername, screen, getUserMedia]);
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-radial from-orange-500/5 via-transparent to-transparent pointer-events-none" />
@@ -783,6 +815,24 @@ export const VideoMeet = () => {
                             placeholder="Your name"
                             className="w-full px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-black bg-white shadow-lg transition-all"
                         />
+                        {hasMultipleCameras && (
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={handleCameraToggle}
+                                disabled={screen || !videoAvailable}
+                                className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
+                                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                    : 'bg-gray-200 text-black hover:bg-gray-300'
+                                    }`}
+                                title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-[18px] h-[18px] md:w-5 md:h-5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 15a3 3 0 11-6 0 3 3 0 016 0zM15.5 15a3 3 0 11-6 0 3 3 0 016 0zM12 6v12M9 9h6" />
+                                </svg>
+                            </motion.button>
+                        )}
+
                         <motion.button
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
