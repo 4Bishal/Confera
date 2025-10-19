@@ -690,81 +690,89 @@ export const VideoMeet = () => {
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
 
-        // Capture current audio state BEFORE any async operations
+        // Capture current states BEFORE any async operations
         const currentAudioState = audio;
         const currentVideoState = video;
-        console.log('Preserving audio state:', currentAudioState, 'video state:', currentVideoState);
+        console.log('Preserving states - audio:', currentAudioState, 'video:', currentVideoState);
 
         try {
-            // Get the current audio track to preserve it BEFORE stopping video
-            let audioTrack = null;
+            // Get and preserve the current audio track BEFORE any changes
+            let preservedAudioTrack = null;
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks();
                 if (audioTracks.length > 0) {
-                    audioTrack = audioTracks[0];
-                    console.log('Preserved audio track, current enabled state:', audioTrack.enabled);
+                    preservedAudioTrack = audioTracks[0];
+                    console.log('Preserved audio track with enabled state:', preservedAudioTrack.enabled);
                 }
             }
 
-            // Stop current video tracks only
+            // Stop ONLY video tracks
             if (localStreamRef.current) {
-                localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+                const videoTracks = localStreamRef.current.getVideoTracks();
+                videoTracks.forEach(track => {
+                    console.log('Stopping video track:', track.label);
+                    track.stop();
+                });
             }
 
-            // Request new stream with new facing mode
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // Request new video stream
+            const newVideoStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: 1280,
                     height: 720,
                     facingMode: { exact: newFacingMode }
                 },
-                audio: false // Don't re-request audio
+                audio: false // CRITICAL: Don't request audio
             });
 
-            // Create new stream with new video and existing audio
-            const newStream = new MediaStream();
-            stream.getVideoTracks().forEach(track => {
-                track.enabled = currentVideoState; // Use captured video state
-                newStream.addTrack(track);
-            });
+            // Create completely new MediaStream
+            const combinedStream = new MediaStream();
 
-            if (audioTrack) {
-                // Keep the audio track's existing enabled state - don't modify it
-                console.log('Adding audio track with preserved state:', audioTrack.enabled);
-                newStream.addTrack(audioTrack);
+            // Add new video track with correct state
+            const newVideoTrack = newVideoStream.getVideoTracks()[0];
+            newVideoTrack.enabled = currentVideoState;
+            combinedStream.addTrack(newVideoTrack);
+            console.log('Added new video track with enabled:', newVideoTrack.enabled);
+
+            // Add preserved audio track WITHOUT modifying its state
+            if (preservedAudioTrack) {
+                combinedStream.addTrack(preservedAudioTrack);
+                console.log('Added preserved audio track with enabled:', preservedAudioTrack.enabled);
             }
 
-            // Update local stream and video element
-            localStreamRef.current = newStream;
+            // Update refs and UI
+            localStreamRef.current = combinedStream;
             if (localVideoRef.current) {
-                localVideoRef.current.srcObject = newStream;
+                localVideoRef.current.srcObject = combinedStream;
             }
 
-            // Replace tracks for all peers
-            await replaceStreamForPeers(newStream);
+            // Replace tracks for peers
+            await replaceStreamForPeers(combinedStream);
 
-            // Update facing mode state
+            // Update camera mode
             setCameraFacingMode(newFacingMode);
 
-            console.log('Camera switched successfully to', newFacingMode, 'with audio state preserved:', audioTrack?.enabled);
+            console.log('Camera switch complete. Audio state:', preservedAudioTrack?.enabled, 'Video state:', newVideoTrack.enabled);
+
         } catch (error) {
             console.error('Error switching camera:', error);
-            // If exact facing mode fails, try without exact
+
+            // Fallback without exact constraint
             try {
-                // Get the current audio track to preserve it
-                let audioTrack = null;
+                let preservedAudioTrack = null;
                 if (localStreamRef.current) {
                     const audioTracks = localStreamRef.current.getAudioTracks();
                     if (audioTracks.length > 0) {
-                        audioTrack = audioTracks[0];
+                        preservedAudioTrack = audioTracks[0];
                     }
                 }
 
                 if (localStreamRef.current) {
-                    localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+                    const videoTracks = localStreamRef.current.getVideoTracks();
+                    videoTracks.forEach(track => track.stop());
                 }
 
-                const stream = await navigator.mediaDevices.getUserMedia({
+                const newVideoStream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         width: 1280,
                         height: 720,
@@ -773,28 +781,27 @@ export const VideoMeet = () => {
                     audio: false
                 });
 
-                const newStream = new MediaStream();
-                stream.getVideoTracks().forEach(track => {
-                    track.enabled = currentVideoState;
-                    newStream.addTrack(track);
-                });
+                const combinedStream = new MediaStream();
 
-                if (audioTrack) {
-                    // Keep the audio track's existing enabled state - don't modify it
-                    newStream.addTrack(audioTrack);
+                const newVideoTrack = newVideoStream.getVideoTracks()[0];
+                newVideoTrack.enabled = currentVideoState;
+                combinedStream.addTrack(newVideoTrack);
+
+                if (preservedAudioTrack) {
+                    combinedStream.addTrack(preservedAudioTrack);
                 }
 
-                localStreamRef.current = newStream;
+                localStreamRef.current = combinedStream;
                 if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = newStream;
+                    localVideoRef.current.srcObject = combinedStream;
                 }
 
-                await replaceStreamForPeers(newStream);
+                await replaceStreamForPeers(combinedStream);
                 setCameraFacingMode(newFacingMode);
 
-                console.log('Camera switched successfully (fallback) to', newFacingMode, 'with audio state preserved');
+                console.log('Camera switch (fallback) complete');
             } catch (fallbackError) {
-                console.error('Fallback camera switch also failed:', fallbackError);
+                console.error('Fallback camera switch failed:', fallbackError);
             }
         }
     }, [cameraFacingMode, screen, video, audio, replaceStreamForPeers]);
@@ -1109,6 +1116,7 @@ export const VideoMeet = () => {
                                     ? 'bg-gray-200 text-black hover:bg-gray-300'
                                     : 'bg-orange-500 text-white hover:bg-orange-600'
                                 }`}
+                            title={!videoAvailable ? 'Camera not available' : screen ? 'Stop screen sharing first' : (video ? 'Turn off camera' : 'Turn on camera')}
                         >
                             {video ? <Video size={18} className="md:w-5 md:h-5" /> : <VideoOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
@@ -1124,6 +1132,7 @@ export const VideoMeet = () => {
                                     ? 'bg-gray-200 text-black hover:bg-gray-300'
                                     : 'bg-orange-500 text-white hover:bg-orange-600'
                                 }`}
+                            title={!audioAvailable ? 'Microphone not available' : (audio ? 'Mute' : 'Unmute')}
                         >
                             {audio ? <Mic size={18} className="md:w-5 md:h-5" /> : <MicOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
@@ -1138,7 +1147,7 @@ export const VideoMeet = () => {
                                     ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
                                     : 'bg-gray-200 text-black hover:bg-gray-300'
                                     }`}
-                                title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                                title={!videoAvailable ? 'Camera not available' : screen ? 'Stop screen sharing first' : `Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
                             >
                                 <SwitchCamera size={18} className="md:w-5 md:h-5" />
                             </motion.button>
@@ -1155,6 +1164,7 @@ export const VideoMeet = () => {
                                     ? 'bg-orange-500 text-white hover:bg-orange-600'
                                     : 'bg-gray-200 text-black hover:bg-gray-300'
                                 }`}
+                            title={screenAvailable ? (screen ? 'Stop sharing' : 'Share screen') : 'Screen sharing not available'}
                         >
                             {screen ? <MonitorUp size={18} className="md:w-5 md:h-5" /> : <MonitorStop size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
