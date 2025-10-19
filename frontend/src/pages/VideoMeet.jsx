@@ -57,7 +57,7 @@ export const VideoMeet = () => {
     const [cameraFacingMode, setCameraFacingMode] = useState('user');
     const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
     const videoRefs = useRef({});
-    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+    const isSwitchingCameraRef = useRef(false);
 
     const createSilentAudioTrack = useCallback(() => {
         const ctx = new AudioContext();
@@ -702,18 +702,18 @@ export const VideoMeet = () => {
         }
 
         // Prevent concurrent camera switches
-        if (isSwitchingCamera) {
+        if (isSwitchingCamera || isSwitchingCameraRef.current) {
             console.log('Camera switch already in progress, ignoring');
             return;
         }
 
         setIsSwitchingCamera(true);
+        isSwitchingCameraRef.current = true;
 
         const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
         console.log('Switching camera from', cameraFacingMode, 'to', newFacingMode);
 
         try {
-            // Store the EXACT audio track reference and its current enabled state
             let originalAudioTrack = null;
             let audioWasEnabled = false;
 
@@ -726,10 +726,8 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Store current video enabled state
             const videoWasEnabled = video;
 
-            // Stop only video tracks (NOT audio)
             if (localStreamRef.current) {
                 localStreamRef.current.getVideoTracks().forEach(track => {
                     console.log('Stopping video track:', track.label);
@@ -737,7 +735,6 @@ export const VideoMeet = () => {
                 });
             }
 
-            // Get new video stream (NO audio request)
             const newVideoStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: 1280,
@@ -747,38 +744,28 @@ export const VideoMeet = () => {
                 audio: false
             });
 
-            // Get the new video track
             const newVideoTrack = newVideoStream.getVideoTracks()[0];
             newVideoTrack.enabled = videoWasEnabled;
 
-            // Create a fresh MediaStream with both tracks
             const freshStream = new MediaStream();
             freshStream.addTrack(newVideoTrack);
 
-            // Add the ORIGINAL audio track and explicitly preserve its enabled state
             if (originalAudioTrack) {
                 freshStream.addTrack(originalAudioTrack);
-                // CRITICAL: Re-apply the enabled state after adding to stream
                 originalAudioTrack.enabled = audioWasEnabled;
                 console.log('Audio track added to new stream, enabled state preserved:', originalAudioTrack.enabled);
             }
 
-            // Update local stream reference
             localStreamRef.current = freshStream;
 
-            // Update video element
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = freshStream;
             }
 
-            // Replace tracks for all peer connections
             await replaceStreamForPeers(freshStream);
 
-            // Update facing mode state
             setCameraFacingMode(newFacingMode);
 
-            // CRITICAL FIX: Sync React state with preserved audio track state
-            // This prevents the audio useEffect from toggling the audio after camera switch
             if (originalAudioTrack && audioWasEnabled !== audio) {
                 setAudio(audioWasEnabled);
                 console.log('Synced audio state to match preserved track state:', audioWasEnabled);
@@ -789,7 +776,6 @@ export const VideoMeet = () => {
         } catch (error) {
             console.error('Camera switch error:', error);
 
-            // Fallback: try without exact facingMode
             try {
                 let originalAudioTrack = null;
                 let audioWasEnabled = false;
@@ -825,7 +811,6 @@ export const VideoMeet = () => {
 
                 if (originalAudioTrack) {
                     freshStream.addTrack(originalAudioTrack);
-                    // CRITICAL: Re-apply the enabled state in fallback too
                     originalAudioTrack.enabled = audioWasEnabled;
                 }
 
@@ -838,7 +823,6 @@ export const VideoMeet = () => {
                 await replaceStreamForPeers(freshStream);
                 setCameraFacingMode(newFacingMode);
 
-                // CRITICAL FIX: Sync React state with preserved audio track state (fallback)
                 if (originalAudioTrack && audioWasEnabled !== audio) {
                     setAudio(audioWasEnabled);
                     console.log('Synced audio state to match preserved track state (fallback):', audioWasEnabled);
@@ -850,7 +834,12 @@ export const VideoMeet = () => {
                 console.error('Fallback camera switch failed:', fallbackError);
             }
         } finally {
-            setIsSwitchingCamera(false);
+            // Use setTimeout to ensure state updates complete before clearing flag
+            setTimeout(() => {
+                setIsSwitchingCamera(false);
+                isSwitchingCameraRef.current = false;
+                console.log('Camera switch complete, flags cleared');
+            }, 100);
         }
     }, [cameraFacingMode, screen, video, audio, videoAvailable, isSwitchingCamera, replaceStreamForPeers]);
 
@@ -943,7 +932,7 @@ export const VideoMeet = () => {
             const audioTracks = localStreamRef.current.getAudioTracks();
 
             // Skip if we're switching cameras to avoid glitches
-            if (isSwitchingCamera) {
+            if (isSwitchingCamera || isSwitchingCameraRef.current) {
                 console.log('Skipping audio track update during camera switch');
                 return;
             }
@@ -960,7 +949,7 @@ export const VideoMeet = () => {
     }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState]);
 
     useEffect(() => {
-        if (!askForUsername && !screen && !isScreenSharingRef.current && !isSwitchingCamera) {
+        if (!askForUsername && !screen && !isScreenSharingRef.current && !isSwitchingCamera && !isSwitchingCameraRef.current) {
             console.log('Switching camera to:', cameraFacingMode);
             getUserMedia();
         }
