@@ -54,7 +54,7 @@ export const VideoMeet = () => {
     const [videos, setVideos] = useState([]);
     const [remoteUserStates, setRemoteUserStates] = useState({});
     const [showCopyFeedback, setShowCopyFeedback] = useState(false);
-    const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' for front, 'environment' for back
+    const [cameraFacingMode, setCameraFacingMode] = useState('user');
     const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
     const videoRefs = useRef({});
 
@@ -190,11 +190,14 @@ export const VideoMeet = () => {
         if (requestVideo || requestAudio) {
             try {
                 console.log('Requesting getUserMedia with video:', requestVideo, 'audio:', requestAudio, 'camera:', cameraFacingMode);
+
+                stopLocalStream();
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: requestVideo ? {
                         width: 1280,
                         height: 720,
-                        facingMode: cameraFacingMode // Use selected camera
+                        facingMode: cameraFacingMode
                     } : false,
                     audio: requestAudio ? {
                         echoCancellation: true,
@@ -203,7 +206,6 @@ export const VideoMeet = () => {
                     } : false
                 });
 
-                stopLocalStream();
                 localStreamRef.current = stream;
 
                 if (localVideoRef.current) {
@@ -212,19 +214,17 @@ export const VideoMeet = () => {
 
                 isScreenSharingRef.current = false;
 
-                // Store audio track for later use during screen sharing
                 const audioTracks = stream.getAudioTracks();
                 if (audioTracks.length > 0) {
                     persistentAudioTrackRef.current = audioTracks[0];
                 }
 
-                // Set initial enabled state ONLY based on media availability, not toggle state
                 stream.getVideoTracks().forEach(track => {
-                    track.enabled = true; // Always start enabled
+                    track.enabled = true;
                 });
 
                 stream.getAudioTracks().forEach(track => {
-                    track.enabled = true; // Always start enabled
+                    track.enabled = true;
                 });
 
                 console.log('Replacing stream for peers with new getUserMedia stream');
@@ -271,7 +271,6 @@ export const VideoMeet = () => {
                         audio: false
                     });
 
-                    // Get the current audio track before stopping the stream
                     let audioTrackToUse = null;
                     if (localStreamRef.current) {
                         const audioTracks = localStreamRef.current.getAudioTracks();
@@ -283,7 +282,6 @@ export const VideoMeet = () => {
 
                     stopLocalStream();
 
-                    // Add the audio track to the screen stream
                     if (audioTrackToUse) {
                         stream.addTrack(audioTrackToUse);
                         console.log('Audio track preserved during screen share');
@@ -558,7 +556,6 @@ export const VideoMeet = () => {
 
             setScreenAvailable(hasScreenShare);
 
-            // Check for multiple cameras
             if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
                 try {
                     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -600,22 +597,19 @@ export const VideoMeet = () => {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [askForUsername, cleanupCall]);
 
-    // Only get media once when joining (no dependencies on video/audio state)
     useEffect(() => {
         if (!askForUsername && !localStreamRef.current && !isScreenSharingRef.current) {
             console.log('Getting user media for the first time on join');
             getUserMedia();
         }
-    }, [askForUsername]); // ONLY depend on askForUsername to avoid re-triggering
+    }, [askForUsername]);
 
-    // Only handle screen sharing when screen state changes
     useEffect(() => {
         if (!askForUsername) {
             getDisplayMedia();
         }
     }, [screen, askForUsername, getDisplayMedia]);
 
-    // Broadcast media state independently
     useEffect(() => {
         if (!askForUsername) {
             broadcastMediaState();
@@ -752,7 +746,6 @@ export const VideoMeet = () => {
         return { cols: 4, rows: Math.ceil(count / 4) };
     }, [videos.length]);
 
-    // Handle video toggle (only when not screen sharing)
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !screen) {
             const videoTracks = localStreamRef.current.getVideoTracks();
@@ -768,7 +761,6 @@ export const VideoMeet = () => {
         }
     }, [video, askForUsername, screen, broadcastMediaState]);
 
-    // Handle audio toggle (works anytime, including screen sharing)
     useEffect(() => {
         if (!askForUsername && localStreamRef.current) {
             const audioTracks = localStreamRef.current.getAudioTracks();
@@ -784,13 +776,19 @@ export const VideoMeet = () => {
         }
     }, [audio, askForUsername, broadcastMediaState]);
 
-    // Effect to handle camera facing mode changes
     useEffect(() => {
-        if (!askForUsername && !screen && !isScreenSharingRef.current) {
+        if (!askForUsername && !screen && !isScreenSharingRef.current && videoAvailable) {
             console.log('Switching camera to:', cameraFacingMode);
             getUserMedia();
         }
-    }, [cameraFacingMode, askForUsername, screen, getUserMedia]);
+    }, [cameraFacingMode, askForUsername, screen, videoAvailable, getUserMedia]);
+
+    const copyMeetingLink = useCallback(() => {
+        navigator.clipboard.writeText(window.location.href).then(() => {
+            setShowCopyFeedback(true);
+            setTimeout(() => setShowCopyFeedback(false), 2000);
+        });
+    }, []);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
@@ -820,337 +818,277 @@ export const VideoMeet = () => {
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
                                 onClick={handleCameraToggle}
-                                disabled={screen || !videoAvailable}
-                                className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
-                                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
-                                    : 'bg-gray-200 text-black hover:bg-gray-300'
-                                    }`}
-                                title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                                className="w-full p-3 bg-gray-700 text-white rounded-xl hover:bg-gray-600 transition-all flex items-center justify-center gap-2"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-[18px] h-[18px] md:w-5 md:h-5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 15a3 3 0 11-6 0 3 3 0 016 0zM15.5 15a3 3 0 11-6 0 3 3 0 016 0zM12 6v12M9 9h6" />
-                                </svg>
+                                <SwitchCamera className="w-5 h-5" />
+                                <span>Switch to {cameraFacingMode === 'user' ? 'Back' : 'Front'} Camera</span>
                             </motion.button>
                         )}
-
                         <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={connect}
                             disabled={!username.trim()}
-                            className="w-full py-4 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full py-4 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg hover:shadow-orange-500/50"
                         >
-                            Join Now
+                            Join Meeting
                         </motion.button>
                     </div>
                 </motion.div>
             ) : (
-                <>
-                    <div className="absolute inset-0 flex items-center justify-center p-2 md:p-4 pb-24 md:pb-28">
+                <div className="flex flex-col h-screen">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-4 backdrop-blur-xl bg-black/20 border-b border-white/10">
+                        <div className="text-white font-semibold text-lg">
+                            {username}'s Meeting
+                        </div>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={copyMeetingLink}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all text-sm"
+                        >
+                            {showCopyFeedback ? '✓ Copied!' : 'Copy Link'}
+                        </motion.button>
+                    </div>
+
+                    {/* Main Video Grid */}
+                    <div className="flex-1 overflow-hidden relative p-4">
                         <div
-                            className="w-full h-full grid gap-2 md:gap-3"
+                            className="grid gap-2 h-full w-full"
                             style={{
                                 gridTemplateColumns: `repeat(${gridLayout.cols}, 1fr)`,
                                 gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`
                             }}
                         >
-                            {videos.length === 0 ? (
-                                <div className="flex items-center justify-center col-span-full row-span-full">
+                            {/* Local Video */}
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="relative bg-gray-800 rounded-xl overflow-hidden border border-white/10 shadow-2xl"
+                            >
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    className="w-full h-full object-cover"
+                                />
+                                <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+                                    <span className="text-white text-sm font-medium">{username} (You)</span>
+                                </div>
+                                {!video && !screen && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+                                        <div className="w-20 h-20 rounded-full bg-orange-500 flex items-center justify-center text-white text-3xl font-bold">
+                                            {username.charAt(0).toUpperCase()}
+                                        </div>
+                                    </div>
+                                )}
+                            </motion.div>
+
+                            {/* Remote Videos */}
+                            {videos.map((video) => {
+                                const userState = remoteUserStates[video.socketId];
+                                const isVideoOn = userState?.video || userState?.screen;
+
+                                return (
                                     <motion.div
+                                        key={video.socketId}
                                         initial={{ opacity: 0, scale: 0.9 }}
                                         animate={{ opacity: 1, scale: 1 }}
-                                        className="text-center space-y-4"
+                                        exit={{ opacity: 0, scale: 0.9 }}
+                                        className="relative bg-gray-800 rounded-xl overflow-hidden border border-white/10 shadow-2xl"
                                     >
-                                        <div className="w-16 h-16 md:w-20 md:h-20 mx-auto rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
-                                            <Video size={32} className="text-white md:w-10 md:h-10" />
+                                        <video
+                                            ref={el => videoRefs.current[video.socketId] = el}
+                                            autoPlay
+                                            playsInline
+                                            className="w-full h-full object-cover"
+                                        />
+                                        <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+                                            <span className="text-white text-sm font-medium">{video.username}</span>
                                         </div>
-                                        <p className="text-white text-lg md:text-xl font-semibold">Waiting for others to join...</p>
-                                        <p className="text-gray-400 text-xs md:text-sm mt-2">Share the meeting link</p>
-                                    </motion.div>
-                                </div>
-                            ) : (
-                                videos.map((video) => {
-                                    const userState = remoteUserStates[video.socketId] || {};
-                                    const isVideoOff = userState.video === false && userState.screen === false;
-                                    const isAudioOff = userState.audio === false;
-                                    const isScreenSharing = userState.screen === true;
-
-                                    return (
-                                        <div key={`${video.socketId}-${video.streamId}`} className="relative rounded-lg md:rounded-xl overflow-hidden bg-gray-900 border border-white/10">
-                                            <video
-                                                key={video.streamId}
-                                                ref={ref => {
-                                                    if (ref) {
-                                                        videoRefs.current[video.socketId] = ref;
-                                                        if (video.stream && ref.srcObject !== video.stream) {
-                                                            console.log(`Setting stream for ${video.socketId}`, video.stream.id);
-                                                            ref.srcObject = video.stream;
-                                                            ref.play().catch(e => console.log('Play error:', e));
-                                                        }
-                                                    }
-                                                }}
-                                                autoPlay
-                                                playsInline
-                                                muted={false}
-                                                className={`w-full h-full object-contain bg-black transition-opacity duration-300 ${isVideoOff ? 'opacity-0' : 'opacity-100'}`}
-                                            />
-                                            {isVideoOff && (
-                                                <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
-                                                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
-                                                        <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.charAt(0).toUpperCase() || 'U'}
-                                                        </span>
-                                                    </div>
-                                                    <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
-                                                    <p className="text-white/70 text-xs md:text-sm mt-2">Camera Off</p>
+                                        {!isVideoOn && (
+                                            <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+                                                <div className="w-20 h-20 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold">
+                                                    {video.username?.charAt(0).toUpperCase() || '?'}
                                                 </div>
-                                            )}
-                                            <div className="absolute top-2 left-2 flex items-center gap-2">
-                                                <div className="text-white text-xs font-medium px-2 py-1 bg-black/50 rounded backdrop-blur-sm">
-                                                    {video.username}
-                                                </div>
-                                                {isScreenSharing && (
-                                                    <div className="px-2 py-1 bg-green-500/90 rounded backdrop-blur-sm flex items-center gap-1">
-                                                        <MonitorUp size={12} className="text-white" />
-                                                        <span className="text-white text-xs font-medium">Sharing</span>
-                                                    </div>
-                                                )}
                                             </div>
-                                            {isAudioOff && (
-                                                <div className="absolute top-2 right-2 bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
-                                                    <MicOff size={14} className="text-white" />
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            )}
+                                        )}
+                                    </motion.div>
+                                );
+                            })}
                         </div>
                     </div>
 
-                    <motion.div className="fixed bottom-20 md:bottom-24 right-2 md:right-4 w-28 h-20 sm:w-36 sm:h-28 md:w-48 md:h-36 rounded-lg md:rounded-xl overflow-hidden border-2 border-orange-500 shadow-2xl z-30 bg-black">
-                        <video
-                            ref={localVideoRef}
-                            autoPlay
-                            muted
-                            playsInline
-                            className="w-full h-full object-contain bg-black"
-                            style={{ transform: screen ? 'none' : 'scaleX(-1)' }}
-                        />
-                        {!video && !screen && (
-                            <div className="absolute inset-0 bg-black flex items-center justify-center">
-                                <VideoOff size={24} className="text-white" />
-                            </div>
-                        )}
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-1 text-center text-xs text-white font-semibold truncate">
-                            {username} (You) {screen && '- Sharing'}
-                        </div>
-                        <div className="absolute top-1 right-1 flex gap-1">
-                            {hasMultipleCameras && !screen && (
+                    {/* Controls */}
+                    <div className="p-4 backdrop-blur-xl bg-black/20 border-t border-white/10">
+                        <div className="flex items-center justify-center gap-2 md:gap-4 max-w-2xl mx-auto">
+                            {/* Video Toggle */}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={handleVideo}
+                                disabled={screen}
+                                className={`p-3 md:p-4 rounded-full transition-all ${video && !screen
+                                        ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                                        : 'bg-red-500 hover:bg-red-600 text-white'
+                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                title={video && !screen ? 'Turn off camera' : 'Turn on camera'}
+                            >
+                                {video && !screen ? <Video className="w-5 h-5 md:w-6 md:h-6" /> : <VideoOff className="w-5 h-5 md:w-6 md:h-6" />}
+                            </motion.button>
+
+                            {/* Audio Toggle */}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={handleAudio}
+                                className={`p-3 md:p-4 rounded-full transition-all ${audio
+                                        ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                                        : 'bg-red-500 hover:bg-red-600 text-white'
+                                    }`}
+                                title={audio ? 'Mute' : 'Unmute'}
+                            >
+                                {audio ? <Mic className="w-5 h-5 md:w-6 md:h-6" /> : <MicOff className="w-5 h-5 md:w-6 md:h-6" />}
+                            </motion.button>
+
+                            {/* Screen Share Toggle */}
+                            {screenAvailable && (
                                 <motion.button
                                     whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={handleCameraToggle}
-                                    disabled={!videoAvailable}
-                                    className="bg-blue-500/80 hover:bg-blue-600/90 p-1.5 rounded-full backdrop-blur-sm transition-all disabled:opacity-50"
-                                    title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={handleScreen}
+                                    className={`p-3 md:p-4 rounded-full transition-all ${screen
+                                            ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                                            : 'bg-gray-700 hover:bg-gray-600 text-white'
+                                        }`}
+                                    title={screen ? 'Stop sharing' : 'Share screen'}
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3 md:w-4 md:h-4 text-white">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 15a3 3 0 11-6 0 3 3 0 016 0zM15.5 15a3 3 0 11-6 0 3 3 0 016 0zM12 6v12M9 9h6" />
-                                    </svg>
+                                    {screen ? <MonitorStop className="w-5 h-5 md:w-6 md:h-6" /> : <MonitorUp className="w-5 h-5 md:w-6 md:h-6" />}
                                 </motion.button>
                             )}
-                            {!audio && (
-                                <div className="bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
-                                    <MicOff size={10} className="text-white md:w-3 md:h-3" />
-                                </div>
-                            )}
-                        </div>
-                    </motion.div>
 
-                    <motion.div className="fixed bottom-3 left-1/2 transform -translate-x-1/2 backdrop-blur-xl bg-white/10 border border-white/20 rounded-full shadow-2xl px-3 md:px-6 py-2.5 md:py-3.5 flex items-center gap-2 md:gap-3 z-40">
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleVideo}
-                            disabled={screen}
-                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                                : video
-                                    ? 'bg-gray-200 text-black hover:bg-gray-300'
-                                    : 'bg-orange-500 text-white hover:bg-orange-600'
-                                }`}
-                        >
-                            {video ? <Video size={18} className="md:w-5 md:h-5" /> : <VideoOff size={18} className="md:w-5 md:h-5" />}
-                        </motion.button>
-
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleAudio}
-                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${audio ? 'bg-gray-200 text-black hover:bg-gray-300' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
-                        >
-                            {audio ? <Mic size={18} className="md:w-5 md:h-5" /> : <MicOff size={18} className="md:w-5 md:h-5" />}
-                        </motion.button>
-
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleScreen}
-                            disabled={!screenAvailable}
-                            className={`p-2.5 md:p-3.5 rounded-full transition-all ${!screenAvailable
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
-                                : screen
-                                    ? 'bg-orange-500 text-white hover:bg-orange-600'
-                                    : 'bg-gray-200 text-black hover:bg-gray-300'
-                                }`}
-                        >
-                            {screen ? <MonitorUp size={18} className="md:w-5 md:h-5" /> : <MonitorStop size={18} className="md:w-5 md:h-5" />}
-                        </motion.button>
-
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => {
-                                navigator.clipboard.writeText(window.location.href);
-                                setShowCopyFeedback(true);
-                                setTimeout(() => setShowCopyFeedback(false), 2000);
-                            }}
-                            className="relative p-2.5 md:p-3.5 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/30"
-                            title="Copy meeting link"
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth={2}
-                                stroke="currentColor"
-                                className="w-[18px] h-[18px] md:w-5 md:h-5"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
-                                />
-                            </svg>
-                            <AnimatePresence>
-                                {showCopyFeedback && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10, scale: 0.8 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, y: -10, scale: 0.8 }}
-                                        className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-green-500 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-lg whitespace-nowrap"
-                                    >
-                                        Link Copied! ✓
-                                        <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-green-500"></div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </motion.button>
-
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleChat}
-                            className="p-2.5 md:p-3.5 rounded-full bg-gray-200 text-black hover:bg-gray-300 transition-all relative"
-                        >
-                            <MessageSquare size={18} className="md:w-5 md:h-5" />
-                            {newMessages > 0 && (
-                                <motion.div
-                                    initial={{ scale: 0 }}
-                                    animate={{ scale: 1 }}
-                                    className="absolute -top-1 -right-1 bg-gradient-to-br from-orange-500 to-orange-600 text-white text-xs font-bold rounded-full w-4 h-4 md:w-5 md:h-5 flex items-center justify-center shadow-lg"
+                            {/* Camera Switch (Mobile) */}
+                            {hasMultipleCameras && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={handleCameraToggle}
+                                    disabled={screen || !videoAvailable}
+                                    className={`p-3 md:p-4 rounded-full transition-all ${screen || !videoAvailable
+                                            ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50'
+                                            : 'bg-gray-700 hover:bg-gray-600 text-white'
+                                        }`}
+                                    title={`Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
                                 >
-                                    {newMessages > 9 ? '9+' : newMessages}
-                                </motion.div>
+                                    <SwitchCamera className="w-5 h-5 md:w-6 md:h-6" />
+                                </motion.button>
                             )}
-                        </motion.button>
 
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleEndCall}
-                            className="p-2.5 md:p-3.5 rounded-full bg-red-500 text-white hover:bg-red-600 transition-all"
-                        >
-                            <PhoneOff size={18} className="md:w-5 md:h-5" />
-                        </motion.button>
-                    </motion.div>
+                            {/* Chat Toggle */}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={handleChat}
+                                className="relative p-3 md:p-4 rounded-full bg-gray-700 hover:bg-gray-600 text-white transition-all"
+                                title="Chat"
+                            >
+                                <MessageSquare className="w-5 h-5 md:w-6 md:h-6" />
+                                {newMessages > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                                        {newMessages}
+                                    </span>
+                                )}
+                            </motion.button>
 
+                            {/* End Call */}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={handleEndCall}
+                                className="p-3 md:p-4 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all"
+                                title="End call"
+                            >
+                                <PhoneOff className="w-5 h-5 md:w-6 md:h-6" />
+                            </motion.button>
+                        </div>
+                    </div>
+
+                    {/* Chat Modal */}
                     <AnimatePresence>
                         {showModal && (
                             <motion.div
-                                initial={{ y: '100%' }}
-                                animate={{ y: 0 }}
-                                exit={{ y: '100%' }}
-                                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                                className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col"
-                                style={{ height: '80vh' }}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                                onClick={handleChat}
                             >
-                                <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-gray-200">
-                                    <h3 className="text-lg md:text-xl font-bold text-gray-800">Chat</h3>
-                                    <motion.button
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.9 }}
-                                        onClick={handleChat}
-                                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                                    >
-                                        <X size={20} className="text-gray-600" />
-                                    </motion.button>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-3">
-                                    {messages.length === 0 ? (
-                                        <div className="flex items-center justify-center h-full">
-                                            <p className="text-gray-400 text-sm">No messages yet. Start the conversation!</p>
-                                        </div>
-                                    ) : (
-                                        messages.map((msg, idx) => (
-                                            <motion.div
-                                                key={idx}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                className={`flex flex-col ${msg.sender === username ? 'items-end' : 'items-start'}`}
-                                            >
-                                                <div className={`max-w-xs md:max-w-md px-4 py-2 rounded-2xl ${msg.sender === username
-                                                    ? 'bg-orange-500 text-white rounded-br-none'
-                                                    : 'bg-gray-200 text-gray-800 rounded-bl-none'
-                                                    }`}>
-                                                    {msg.sender !== username && (
-                                                        <p className="text-xs font-semibold mb-1 opacity-70">{msg.sender}</p>
-                                                    )}
-                                                    <p className="text-sm break-words">{msg.data}</p>
-                                                </div>
-                                            </motion.div>
-                                        ))
-                                    )}
-                                    <div ref={chatEndRef} />
-                                </div>
-
-                                <div className="px-4 md:px-6 py-4 border-t border-gray-200 bg-gray-50">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="text"
-                                            value={message}
-                                            onChange={(e) => setMessage(e.target.value)}
-                                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                                            placeholder="Type a message..."
-                                            className="flex-1 px-4 py-3 rounded-full bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                                        />
-                                        <motion.button
-                                            whileHover={{ scale: 1.05 }}
-                                            whileTap={{ scale: 0.95 }}
-                                            onClick={sendMessage}
-                                            disabled={!message.trim()}
-                                            className="p-3 rounded-full bg-orange-500 text-white hover:bg-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                <motion.div
+                                    initial={{ scale: 0.9, y: 20 }}
+                                    animate={{ scale: 1, y: 0 }}
+                                    exit={{ scale: 0.9, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col border border-white/10"
+                                >
+                                    {/* Chat Header */}
+                                    <div className="flex items-center justify-between p-4 border-b border-white/10">
+                                        <h3 className="text-white font-semibold text-lg">Chat</h3>
+                                        <button
+                                            onClick={handleChat}
+                                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                                         >
-                                            <Send size={18} />
-                                        </motion.button>
+                                            <X className="w-5 h-5 text-gray-400" />
+                                        </button>
                                     </div>
-                                </div>
+
+                                    {/* Messages */}
+                                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                        {messages.length === 0 ? (
+                                            <div className="text-center text-gray-500 mt-8">
+                                                No messages yet. Start the conversation!
+                                            </div>
+                                        ) : (
+                                            messages.map((msg, index) => (
+                                                <div key={index} className="space-y-1">
+                                                    <div className="text-xs text-gray-400">{msg.sender}</div>
+                                                    <div className="bg-gray-800 text-white p-3 rounded-lg">
+                                                        {msg.data}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                        <div ref={chatEndRef} />
+                                    </div>
+
+                                    {/* Message Input */}
+                                    <div className="p-4 border-t border-white/10">
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={message}
+                                                onChange={(e) => setMessage(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                                                placeholder="Type a message..."
+                                                className="flex-1 px-4 py-2 bg-gray-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                            />
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={sendMessage}
+                                                disabled={!message.trim()}
+                                                className="p-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <Send className="w-5 h-5" />
+                                            </motion.button>
+                                        </div>
+                                    </div>
+                                </motion.div>
                             </motion.div>
                         )}
                     </AnimatePresence>
-                </>
+                </div>
             )}
         </div>
     );
