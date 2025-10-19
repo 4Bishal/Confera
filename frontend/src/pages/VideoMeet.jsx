@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { io } from "socket.io-client";
 import {
@@ -11,11 +10,11 @@ import {
     MonitorStop,
     MessageSquare,
     Send,
-    X
+    X,
+    SwitchCamera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router';
-import server from '../environment';
 
 const PEER_CONFIG = {
     iceServers: [
@@ -390,7 +389,7 @@ export const VideoMeet = () => {
     }, [video, audio, screen]);
 
     const connectToSocketServer = useCallback(() => {
-        socketRef.current = io(server, {
+        socketRef.current = io("http://localhost:5000", {
             secure: false,
             transports: ['websocket', 'polling']
         });
