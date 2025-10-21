@@ -1,5 +1,7 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { io } from "socket.io-client";
+"use client"
+
+import { useEffect, useState, useRef, useCallback, useMemo } from "react"
+import { io } from "socket.io-client"
 import {
     PhoneOff,
     Mic,
@@ -11,770 +13,1007 @@ import {
     MessageSquare,
     Send,
     X,
-    SwitchCamera
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router';
-import server from '../environment';
+    SwitchCamera,
+} from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { useNavigate } from "react-router"
+import server from "../environment"
 
 const PEER_CONFIG = {
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
-    ],
-    iceCandidatePoolSize: 10
-};
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }],
+    iceCandidatePoolSize: 10,
+}
 
-const BLACK_VIDEO_DIMS = { width: 640, height: 480 };
+const BLACK_VIDEO_DIMS = { width: 640, height: 480 }
 
 export const VideoMeet = () => {
-    const navigate = useNavigate();
-    const socketRef = useRef();
-    const socketIdRef = useRef();
-    const localVideoRef = useRef();
-    const connectionsRef = useRef({});
-    const isMountedRef = useRef(true);
-    const isScreenSharingRef = useRef(false);
-    const localStreamRef = useRef(null);
-    const persistentAudioTrackRef = useRef(null);
-    const chatEndRef = useRef();
-    const audioStateRef = useRef(true); // Track intended audio state
+    const navigate = useNavigate()
+    const socketRef = useRef()
+    const socketIdRef = useRef()
+    const localVideoRef = useRef()
+    const connectionsRef = useRef({})
+    const isMountedRef = useRef(true)
+    const isScreenSharingRef = useRef(false)
+    const localStreamRef = useRef(null)
+    const persistentAudioTrackRef = useRef(null)
+    const chatEndRef = useRef()
+    const audioStateRef = useRef(true) // Track intended audio state
+    const isGettingUserMediaRef = useRef(false)
+    const dedicatedAudioStreamRef = useRef(null)
 
-    const [videoAvailable, setVideoAvailable] = useState(true);
-    const [audioAvailable, setAudioAvailable] = useState(true);
-    const [video, setVideo] = useState(true);
-    const [audio, setAudio] = useState(true);
-    const [screen, setScreen] = useState(false);
-    const [showModal, setShowModal] = useState(false);
-    const [screenAvailable, setScreenAvailable] = useState(true);
-    const [message, setMessage] = useState("");
-    const [messages, setMessages] = useState([]);
-    const [newMessages, setNewMessages] = useState(0);
-    const [askForUsername, setAskForUsername] = useState(true);
-    const [username, setUsername] = useState("");
-    const [videos, setVideos] = useState([]);
-    const [remoteUserStates, setRemoteUserStates] = useState({});
-    const [showCopyFeedback, setShowCopyFeedback] = useState(false);
-    const [cameraFacingMode, setCameraFacingMode] = useState('user');
-    const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
-    const videoRefs = useRef({});
-    const isSwitchingCameraRef = useRef(false);
-    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+    const [videoAvailable, setVideoAvailable] = useState(true)
+    const [audioAvailable, setAudioAvailable] = useState(true)
+    const [video, setVideo] = useState(true)
+    const [audio, setAudio] = useState(true)
+    const [screen, setScreen] = useState(false)
+    const [showModal, setShowModal] = useState(false)
+    const [screenAvailable, setScreenAvailable] = useState(true)
+    const [message, setMessage] = useState("")
+    const [messages, setMessages] = useState([])
+    const [newMessages, setNewMessages] = useState(0)
+    const [askForUsername, setAskForUsername] = useState(true)
+    const [username, setUsername] = useState("")
+    const [videos, setVideos] = useState([])
+    const [remoteUserStates, setRemoteUserStates] = useState({})
+    const [showCopyFeedback, setShowCopyFeedback] = useState(false)
+    const [cameraFacingMode, setCameraFacingMode] = useState("user")
+    const [hasMultipleCameras, setHasMultipleCameras] = useState(false)
+    const videoRefs = useRef({})
+    const isSwitchingCameraRef = useRef(false)
+    const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
+    const isScreenShareOperationRef = useRef(false)
 
     // Synchronize audioStateRef with audio state
     useEffect(() => {
-        audioStateRef.current = audio;
-    }, [audio]);
+        audioStateRef.current = audio
+    }, [audio])
 
     // Force audio track state to match audioStateRef
     const enforceAudioState = useCallback(() => {
         if (localStreamRef.current) {
-            const audioTracks = localStreamRef.current.getAudioTracks();
-            audioTracks.forEach(track => {
-                if (track.label && !track.label.includes('MediaStreamAudioDestinationNode')) {
-                    track.enabled = audioStateRef.current;
+            const audioTracks = localStreamRef.current.getAudioTracks()
+            audioTracks.forEach((track) => {
+                if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
+                    track.enabled = audioStateRef.current
                 }
-            });
+            })
         }
-    }, []);
+    }, [])
 
     const createSilentAudioTrack = useCallback(() => {
-        const ctx = new AudioContext();
-        const oscillator = ctx.createOscillator();
-        const dst = oscillator.connect(ctx.createMediaStreamDestination());
-        oscillator.start();
-        ctx.resume();
-        return Object.assign(dst.stream.getAudioTracks()[0], { enabled: false });
-    }, []);
+        const ctx = new AudioContext()
+        const oscillator = ctx.createOscillator()
+        const dst = oscillator.connect(ctx.createMediaStreamDestination())
+        oscillator.start()
+        ctx.resume()
+        return Object.assign(dst.stream.getAudioTracks()[0], { enabled: false })
+    }, [])
 
     const createBlackVideoTrack = useCallback(({ width = 640, height = 480 } = {}) => {
-        const canvas = Object.assign(document.createElement("canvas"), { width, height });
-        canvas.getContext("2d").fillRect(0, 0, width, height);
-        const stream = canvas.captureStream();
-        return Object.assign(stream.getVideoTracks()[0], { enabled: false });
-    }, []);
+        const canvas = Object.assign(document.createElement("canvas"), { width, height })
+        canvas.getContext("2d").fillRect(0, 0, width, height)
+        const stream = canvas.captureStream()
+        return Object.assign(stream.getVideoTracks()[0], { enabled: false })
+    }, [])
 
     const createBlackSilenceStream = useCallback(() => {
-        return new MediaStream([
-            createBlackVideoTrack(BLACK_VIDEO_DIMS),
-            createSilentAudioTrack()
-        ]);
-    }, [createBlackVideoTrack, createSilentAudioTrack]);
+        return new MediaStream([createBlackVideoTrack(BLACK_VIDEO_DIMS), createSilentAudioTrack()])
+    }, [createBlackVideoTrack, createSilentAudioTrack])
 
     const renegotiateWithPeers = useCallback(async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100))
 
         const renegotiatePromises = Object.entries(connectionsRef.current).map(async ([id, connection]) => {
-            if (id === socketIdRef.current) return;
+            if (id === socketIdRef.current) return
 
-            const currentState = connection.signalingState;
+            const currentState = connection.signalingState
 
-            if (currentState !== 'stable') {
-                console.log(`Skipping renegotiation for peer ${id}, state: ${currentState}`);
-                return;
+            if (currentState !== "stable") {
+                console.log(`Skipping renegotiation for peer ${id}, state: ${currentState}`)
+                return
             }
 
             try {
-                console.log(`Creating offer for peer ${id}`);
-                const description = await connection.createOffer();
-                await connection.setLocalDescription(description);
+                console.log(`Creating offer for peer ${id}, screen sharing: ${isScreenSharingRef.current}`)
+                const description = await connection.createOffer()
+                await connection.setLocalDescription(description)
 
-                socketRef.current?.emit("signal", id, JSON.stringify({
-                    sdp: connection.localDescription
-                }));
+                socketRef.current?.emit(
+                    "signal",
+                    id,
+                    JSON.stringify({
+                        sdp: connection.localDescription,
+                    }),
+                )
 
-                console.log(`Offer sent to peer ${id}`);
+                console.log(`Offer sent to peer ${id}`)
             } catch (e) {
-                console.error(`Renegotiation error for peer ${id}:`, e);
+                console.error(`Renegotiation error for peer ${id}:`, e)
             }
-        });
+        })
 
-        await Promise.all(renegotiatePromises);
-        console.log('Renegotiation complete for all peers');
-    }, []);
+        await Promise.all(renegotiatePromises)
+        console.log("Renegotiation complete for all peers")
+    }, [])
 
-    const replaceStreamForPeers = useCallback(async (newStream, options = {}) => {
-        console.log('Replacing stream for all peers', options);
+    const replaceStreamForPeers = useCallback(
+        async (newStream, options = {}) => {
+            console.log("Replacing stream for all peers", options)
 
-        const replacePromises = [];
+            const replacePromises = []
 
-        for (const [id, peerConnection] of Object.entries(connectionsRef.current)) {
-            if (id === socketIdRef.current) continue;
+            for (const [id, peerConnection] of Object.entries(connectionsRef.current)) {
+                if (id === socketIdRef.current) continue
 
-            const replacePromise = (async () => {
-                try {
-                    const senders = peerConnection.getSenders();
-                    const videoTrack = newStream.getVideoTracks()[0];
-                    const audioTrack = newStream.getAudioTracks()[0];
+                const replacePromise = (async () => {
+                    try {
+                        const senders = peerConnection.getSenders()
+                        const videoTrack = newStream.getVideoTracks()[0]
+                        const audioTrack = newStream.getAudioTracks()[0]
 
-                    // Replace video track
-                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-                    if (videoSender && videoTrack) {
-                        console.log(`Replacing video track for peer ${id}`);
-                        await videoSender.replaceTrack(videoTrack);
-                    }
-
-                    // Replace audio track - preserve the enabled state
-                    const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
-                    if (audioSender && audioTrack) {
-                        if (options.skipAudio) {
-                            console.log(`Skipping audio track replacement for peer ${id}`);
-                        } else if (audioSender.track !== audioTrack) {
-                            console.log(`Replacing audio track for peer ${id}`);
-                            await audioSender.replaceTrack(audioTrack);
-                        } else {
-                            console.log(`Skipping audio track replacement for peer ${id} (same track)`);
+                        // Replace video track
+                        const videoSender = senders.find((s) => s.track && s.track.kind === "video")
+                        if (videoSender && videoTrack) {
+                            console.log(`Replacing video track for peer ${id}`)
+                            videoTrack.enabled = true
+                            await videoSender.replaceTrack(videoTrack)
+                            await new Promise((resolve) => setTimeout(resolve, 50))
                         }
+
+                        // Replace audio track - preserve the enabled state
+                        const audioSender = senders.find((s) => s.track && s.track.kind === "audio")
+                        if (audioSender && audioTrack) {
+                            if (options.skipAudio) {
+                                console.log(`Skipping audio track replacement for peer ${id}`)
+                            } else if (audioSender.track !== audioTrack) {
+                                console.log(`Replacing audio track for peer ${id}`)
+                                // Preserve audio state before replacement
+                                const shouldBeEnabled = audioStateRef.current
+                                audioTrack.enabled = shouldBeEnabled
+                                await audioSender.replaceTrack(audioTrack)
+                                console.log(`Audio track replaced with state: ${shouldBeEnabled}`)
+                            } else {
+                                console.log(`Skipping audio track replacement for peer ${id} (same track)`)
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Error replacing tracks for peer ${id}:`, e)
                     }
-                } catch (e) {
-                    console.error(`Error replacing tracks for peer ${id}:`, e);
-                }
-            })();
+                })()
 
-            replacePromises.push(replacePromise);
-        }
+                replacePromises.push(replacePromise)
+            }
 
-        await Promise.all(replacePromises);
+            await Promise.all(replacePromises)
 
-        // Only renegotiate if not skipping
-        if (!options.skipRenegotiation) {
-            console.log('All tracks replaced, starting renegotiation...');
-            await renegotiateWithPeers();
-        } else {
-            console.log('Skipping renegotiation as requested');
-        }
+            await new Promise((resolve) => setTimeout(resolve, 100))
 
-        // Force audio state after any stream replacement
-        setTimeout(() => {
-            enforceAudioState();
-        }, 100);
-    }, [renegotiateWithPeers, enforceAudioState]);
+            // Only renegotiate if not skipping
+            if (!options.skipRenegotiation) {
+                console.log("All tracks replaced, starting renegotiation...")
+                await renegotiateWithPeers()
+            } else {
+                console.log("Skipping renegotiation as requested")
+            }
+
+            // Force audio state after any stream replacement
+            setTimeout(() => {
+                enforceAudioState()
+            }, 150)
+        },
+        [renegotiateWithPeers, enforceAudioState],
+    )
 
     const stopLocalStream = useCallback(() => {
         if (localStreamRef.current) {
-            localStreamRef.current.getVideoTracks().forEach(track => {
-                track.stop();
-            });
-            localStreamRef.current = null;
+            localStreamRef.current.getVideoTracks().forEach((track) => {
+                track.stop()
+            })
+            localStreamRef.current = null
         }
         if (localVideoRef.current) {
-            localVideoRef.current.srcObject = null;
+            localVideoRef.current.srcObject = null
         }
-    }, []);
+    }, [])
 
     const handleTrackEnded = useCallback(async () => {
         if (isScreenSharingRef.current) {
-            setScreen(false);
-            setVideo(false);
-            setAudio(false);
+            setScreen(false)
+            setVideo(false)
+            setAudio(false)
         } else {
-            setVideo(false);
-            setAudio(false);
+            setVideo(false)
+            setAudio(false)
         }
 
-        stopLocalStream();
-        const blackSilence = createBlackSilenceStream();
-        localStreamRef.current = blackSilence;
+        stopLocalStream()
+        const blackSilence = createBlackSilenceStream()
+        localStreamRef.current = blackSilence
         if (localVideoRef.current) {
-            localVideoRef.current.srcObject = blackSilence;
+            localVideoRef.current.srcObject = blackSilence
         }
-        isScreenSharingRef.current = false;
+        isScreenSharingRef.current = false
 
-        await replaceStreamForPeers(blackSilence);
-    }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers]);
+        await replaceStreamForPeers(blackSilence)
+    }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers])
 
     const getUserMedia = useCallback(async () => {
-        const requestVideo = videoAvailable;
-        const requestAudio = audioAvailable;
-
-        if (requestVideo || requestAudio) {
-            try {
-                console.log('Requesting getUserMedia with video:', requestVideo, 'audio:', requestAudio, 'camera:', cameraFacingMode);
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: requestVideo ? {
-                        width: 1280,
-                        height: 720,
-                        facingMode: cameraFacingMode
-                    } : false,
-                    audio: requestAudio ? {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    } : false
-                });
-
-                stopLocalStream();
-                localStreamRef.current = stream;
-
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = stream;
-                }
-
-                isScreenSharingRef.current = false;
-
-                const audioTracks = stream.getAudioTracks();
-                if (audioTracks.length > 0) {
-                    persistentAudioTrackRef.current = audioTracks[0];
-                    // Set initial audio state
-                    audioTracks[0].enabled = audioStateRef.current;
-                }
-
-                stream.getVideoTracks().forEach(track => {
-                    track.enabled = true;
-                });
-
-                console.log('Replacing stream for peers with new getUserMedia stream');
-                await replaceStreamForPeers(stream);
-
-                stream.getTracks().forEach(track => {
-                    track.onended = handleTrackEnded;
-                });
-
-                console.log('getUserMedia complete');
-            } catch (e) {
-                console.error("getUserMedia error:", e);
-            }
-        } else {
-            stopLocalStream();
-            const blackSilence = createBlackSilenceStream();
-            localStreamRef.current = blackSilence;
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = blackSilence;
-            }
-            isScreenSharingRef.current = false;
-            await replaceStreamForPeers(blackSilence);
+        // Prevent duplicate calls
+        if (isGettingUserMediaRef.current) {
+            console.log("getUserMedia already in progress, skipping")
+            return
         }
-    }, [videoAvailable, audioAvailable, cameraFacingMode, stopLocalStream, createBlackSilenceStream, replaceStreamForPeers, handleTrackEnded]);
+
+        const requestVideo = videoAvailable && video
+        const requestAudio = audioAvailable
+
+        try {
+            isGettingUserMediaRef.current = true
+
+            let videoStream = null
+            let audioStream = null
+
+            // Get audio independently
+            if (requestAudio) {
+                try {
+                    audioStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                        },
+                        video: false
+                    })
+                    console.log("Audio stream obtained successfully")
+                } catch (e) {
+                    console.error("Audio stream error:", e)
+                }
+            }
+
+            // Get video independently
+            if (requestVideo) {
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: 1280,
+                            height: 720,
+                            facingMode: cameraFacingMode,
+                        },
+                        audio: false
+                    })
+                    console.log("Video stream obtained successfully")
+                } catch (e) {
+                    console.error("Video stream error:", e)
+                }
+            }
+
+            // Stop existing local stream
+            stopLocalStream()
+
+            // Create combined stream
+            const combinedStream = new MediaStream()
+
+            // Add video track (real or black)
+            if (videoStream && videoStream.getVideoTracks().length > 0) {
+                const videoTrack = videoStream.getVideoTracks()[0]
+                videoTrack.enabled = video
+                combinedStream.addTrack(videoTrack)
+                videoTrack.onended = handleTrackEnded
+                console.log("Added real video track")
+            } else {
+                const blackVideo = createBlackVideoTrack(BLACK_VIDEO_DIMS)
+                blackVideo.enabled = false
+                combinedStream.addTrack(blackVideo)
+                console.log("Added black video track (no video permission)")
+            }
+
+            // Add audio track (real or silent)
+            if (audioStream && audioStream.getAudioTracks().length > 0) {
+                const audioTrack = audioStream.getAudioTracks()[0]
+                audioTrack.enabled = audioStateRef.current
+                combinedStream.addTrack(audioTrack)
+                persistentAudioTrackRef.current = audioTrack
+                dedicatedAudioStreamRef.current = audioStream
+                audioTrack.onended = handleTrackEnded
+                console.log("Added real audio track with state:", audioStateRef.current)
+            } else {
+                const silentAudio = createSilentAudioTrack()
+                silentAudio.enabled = false
+                combinedStream.addTrack(silentAudio)
+                console.log("Added silent audio track (no audio permission)")
+            }
+
+            localStreamRef.current = combinedStream
+            if (localVideoRef.current) {
+                localVideoRef.current.srcObject = combinedStream
+            }
+
+            isScreenSharingRef.current = false
+
+            const peerCount = Object.keys(connectionsRef.current).length
+            console.log(`Replacing stream for ${peerCount} peer(s) with new getUserMedia stream`)
+
+            if (peerCount > 0) {
+                await replaceStreamForPeers(combinedStream)
+            } else {
+                console.log("No peers connected, stream ready for when they join")
+            }
+
+            console.log("getUserMedia complete - Final stream tracks:", {
+                video: combinedStream.getVideoTracks().length,
+                audio: combinedStream.getAudioTracks().length,
+                videoEnabled: combinedStream.getVideoTracks()[0]?.enabled,
+                audioEnabled: combinedStream.getAudioTracks()[0]?.enabled
+            })
+        } catch (e) {
+            console.error("getUserMedia error:", e)
+        } finally {
+            isGettingUserMediaRef.current = false
+        }
+    }, [
+        videoAvailable,
+        audioAvailable,
+        video,
+        cameraFacingMode,
+        stopLocalStream,
+        createBlackVideoTrack,
+        createSilentAudioTrack,
+        replaceStreamForPeers,
+        handleTrackEnded,
+    ])
 
     const getDisplayMedia = useCallback(async () => {
         if (screen) {
-            const displayMediaAPI = navigator.mediaDevices?.getDisplayMedia ||
-                navigator.getDisplayMedia ||
-                navigator.mediaDevices?.getDisplayMedia;
+            const displayMediaAPI =
+                navigator.mediaDevices?.getDisplayMedia || navigator.getDisplayMedia || navigator.mediaDevices?.getDisplayMedia
 
             if (displayMediaAPI) {
-                const getDisplay = displayMediaAPI.bind(navigator.mediaDevices || navigator);
+                const getDisplay = displayMediaAPI.bind(navigator.mediaDevices || navigator)
 
                 try {
+                    isScreenShareOperationRef.current = true
+
+                    // Save audio state and track before screen share
+                    const savedAudioState = audioStateRef.current
+                    let audioTrackToUse = null
+
+                    if (localStreamRef.current) {
+                        const audioTracks = localStreamRef.current.getAudioTracks()
+                        if (audioTracks.length > 0) {
+                            audioTrackToUse = audioTracks[0]
+                            persistentAudioTrackRef.current = audioTrackToUse
+                            console.log("Saved audio track and state:", savedAudioState)
+                        }
+                    }
+
                     const stream = await getDisplay({
                         video: {
                             cursor: "always",
                             displaySurface: "monitor",
                             logicalSurface: true,
                             width: { ideal: 1920, max: 1920 },
-                            height: { ideal: 1080, max: 1080 }
+                            height: { ideal: 1080, max: 1080 },
                         },
-                        audio: false
-                    });
+                        audio: false,
+                    })
 
-                    let audioTrackToUse = null;
+                    // Stop only video tracks, preserve audio
                     if (localStreamRef.current) {
-                        const audioTracks = localStreamRef.current.getAudioTracks();
-                        if (audioTracks.length > 0) {
-                            audioTrackToUse = audioTracks[0];
-                            persistentAudioTrackRef.current = audioTrackToUse;
-                        }
+                        localStreamRef.current.getVideoTracks().forEach((track) => track.stop())
                     }
 
-                    stopLocalStream();
+                    const screenVideoTracks = stream.getVideoTracks()
+                    screenVideoTracks.forEach((track) => {
+                        track.enabled = true
+                        console.log("Screen video track enabled")
+                    })
 
+                    // Add preserved audio track
                     if (audioTrackToUse) {
-                        stream.addTrack(audioTrackToUse);
-                        audioTrackToUse.enabled = audioStateRef.current;
-                        console.log('Audio track preserved during screen share');
+                        stream.addTrack(audioTrackToUse)
+                        // Restore the saved audio state
+                        audioTrackToUse.enabled = savedAudioState
+                        console.log("Audio track preserved with state:", savedAudioState)
                     }
 
-                    localStreamRef.current = stream;
+                    localStreamRef.current = stream
                     if (localVideoRef.current) {
-                        localVideoRef.current.srcObject = stream;
+                        localVideoRef.current.srcObject = stream
                     }
-                    isScreenSharingRef.current = true;
+                    isScreenSharingRef.current = true
 
-                    await replaceStreamForPeers(stream);
+                    // Replace stream for existing peers
+                    const peerCount = Object.keys(connectionsRef.current).length
+                    console.log(`Screen share started, ${peerCount} peer(s) connected`)
 
-                    stream.getVideoTracks().forEach(track => {
+                    if (peerCount > 0) {
+                        await replaceStreamForPeers(stream, { skipRenegotiation: false })
+                    } else {
+                        console.log("No peers yet, screen share will be sent when peers join")
+                    }
+
+                    // Enforce audio state after screen share is established
+                    setTimeout(() => {
+                        enforceAudioState()
+                        console.log("Audio state enforced after screen share")
+                    }, 200)
+
+                    stream.getVideoTracks().forEach((track) => {
                         track.onended = () => {
-                            setScreen(false);
-                            isScreenSharingRef.current = false;
-                            getUserMedia();
-                        };
-                    });
+                            console.log("Screen share ended by user")
+                            // Don't change these flags here - let the useEffect handle it
+                            // This prevents race conditions with audio state
+                            if (isMountedRef.current) {
+                                setScreen(false)
+                            }
+                        }
+                    })
                 } catch (e) {
-                    console.error("getDisplayMedia error:", e);
-                    setScreen(false);
+                    console.error("getDisplayMedia error:", e)
+                    setScreen(false)
+                    isScreenShareOperationRef.current = false
                 }
             } else {
-                console.error("Screen sharing not supported");
-                setScreen(false);
-                setScreenAvailable(false);
+                console.error("Screen sharing not supported")
+                setScreen(false)
+                setScreenAvailable(false)
+                isScreenShareOperationRef.current = false
             }
         } else {
-            isScreenSharingRef.current = false;
-            getUserMedia();
+            isScreenShareOperationRef.current = false
         }
-    }, [screen, stopLocalStream, replaceStreamForPeers, getUserMedia]);
+    }, [screen, replaceStreamForPeers, enforceAudioState])
 
-    const gotMessageFromServer = useCallback((fromId, message) => {
-        const signal = JSON.parse(message);
+    useEffect(() => {
+        if (!screen && isScreenSharingRef.current && !askForUsername && !isGettingUserMediaRef.current) {
+            console.log("Screen share stopped, returning to camera")
 
-        if (fromId === socketIdRef.current) return;
+            // CRITICAL: Save audio state BEFORE any operations
+            const savedAudioState = audioStateRef.current
+            console.log("Saving audio state before returning to camera:", savedAudioState)
 
-        const connection = connectionsRef.current[fromId];
-        if (!connection) return;
+            // Clear screen sharing flag immediately
+            isScreenSharingRef.current = false
+            isScreenShareOperationRef.current = false
 
-        if (signal.sdp) {
-            const desc = new RTCSessionDescription(signal.sdp);
-            const currentState = connection.signalingState;
+            // Small delay to ensure clean transition
+            setTimeout(() => {
+                if (!isGettingUserMediaRef.current) {
+                    // Force the audio state to the saved value before calling getUserMedia
+                    audioStateRef.current = savedAudioState
 
-            console.log(`Received SDP ${desc.type} from ${fromId}, current state: ${currentState}`);
-
-            if (desc.type === "offer" && (currentState === "have-local-offer" || currentState === "stable")) {
-                const isPolite = socketIdRef.current < fromId;
-
-                if (currentState === "have-local-offer" && !isPolite) {
-                    console.log(`Ignoring offer from ${fromId} due to glare (we're impolite)`);
-                    return;
+                    getUserMedia().then(() => {
+                        // Re-enforce audio state after transition with the saved state
+                        setTimeout(() => {
+                            audioStateRef.current = savedAudioState
+                            enforceAudioState()
+                            console.log("Audio state re-enforced after screen share stop:", savedAudioState)
+                        }, 100)
+                    })
                 }
-            }
+            }, 100)
+        }
+    }, [screen, askForUsername, getUserMedia, enforceAudioState])
+    const gotMessageFromServer = useCallback(
+        (fromId, message) => {
+            const signal = JSON.parse(message)
 
-            if (desc.type === "answer" && currentState !== "have-local-offer") {
-                console.log(`Ignoring answer from ${fromId}, we're not expecting one (state: ${currentState})`);
-                return;
-            }
+            if (fromId === socketIdRef.current) return
 
-            connection.setRemoteDescription(desc)
-                .then(() => {
-                    if (desc.type === "offer") {
-                        return connection.createAnswer()
-                            .then(answer => connection.setLocalDescription(answer))
-                            .then(() => {
-                                socketRef.current?.emit("signal", fromId, JSON.stringify({
-                                    sdp: connection.localDescription
-                                }));
-                                console.log(`Sent answer to ${fromId}`);
-                            });
+            const connection = connectionsRef.current[fromId]
+            if (!connection) return
+
+            if (signal.sdp) {
+                const desc = new RTCSessionDescription(signal.sdp)
+                const currentState = connection.signalingState
+
+                console.log(`Received SDP ${desc.type} from ${fromId}, current state: ${currentState}`)
+
+                if (desc.type === "offer" && (currentState === "have-local-offer" || currentState === "stable")) {
+                    const isPolite = socketIdRef.current < fromId
+
+                    if (currentState === "have-local-offer" && !isPolite) {
+                        console.log(`Ignoring offer from ${fromId} due to glare (we're impolite)`)
+                        return
                     }
-                })
-                .then(() => {
-                    // Enforce audio state after SDP exchange
-                    enforceAudioState();
-                })
-                .catch(e => console.error(`SDP error with ${fromId}:`, e));
-        }
+                }
 
-        if (signal.ice) {
-            connection.addIceCandidate(new RTCIceCandidate(signal.ice))
-                .catch(e => console.error("ICE candidate error:", e));
-        }
-    }, [enforceAudioState]);
+                if (desc.type === "answer" && currentState !== "have-local-offer") {
+                    console.log(`Ignoring answer from ${fromId}, we're not expecting one (state: ${currentState})`)
+                    return
+                }
+
+                connection
+                    .setRemoteDescription(desc)
+                    .then(() => {
+                        if (desc.type === "offer") {
+                            return connection
+                                .createAnswer()
+                                .then((answer) => connection.setLocalDescription(answer))
+                                .then(() => {
+                                    socketRef.current?.emit(
+                                        "signal",
+                                        fromId,
+                                        JSON.stringify({
+                                            sdp: connection.localDescription,
+                                        }),
+                                    )
+                                    console.log(`Sent answer to ${fromId}`)
+                                })
+                        }
+                    })
+                    .then(() => {
+                        // Enforce audio state after SDP exchange
+                        enforceAudioState()
+                    })
+                    .catch((e) => console.error(`SDP error with ${fromId}:`, e))
+            }
+
+            if (signal.ice) {
+                connection
+                    .addIceCandidate(new RTCIceCandidate(signal.ice))
+                    .catch((e) => console.error("ICE candidate error:", e))
+            }
+        },
+        [enforceAudioState],
+    )
 
     const addMessage = useCallback((data, sender, socketIdSender) => {
-        if (!isMountedRef.current) return;
+        if (!isMountedRef.current) return
 
-        setMessages(prev => [...prev, { data, sender }]);
+        setMessages((prev) => [...prev, { data, sender }])
 
         if (socketIdRef.current !== socketIdSender) {
-            setNewMessages(prev => prev + 1);
+            setNewMessages((prev) => prev + 1)
         }
-    }, []);
+    }, [])
 
     const broadcastMediaState = useCallback(() => {
         if (socketRef.current) {
             socketRef.current.emit("media-state-change", {
                 video: video,
                 audio: audio,
-                screen: screen
-            });
+                screen: screen,
+            })
         }
-    }, [video, audio, screen]);
+    }, [video, audio, screen])
 
     const connectToSocketServer = useCallback(() => {
         socketRef.current = io(server, {
             secure: false,
-            transports: ['websocket', 'polling']
-        });
+            transports: ["websocket", "polling"],
+        })
 
-        socketRef.current.on("signal", gotMessageFromServer);
+        socketRef.current.on("signal", gotMessageFromServer)
 
         socketRef.current.on("connect", () => {
-            socketRef.current.emit("join-call", window.location.href, username);
-            socketIdRef.current = socketRef.current.id;
+            socketRef.current.emit("join-call", window.location.href, username)
+            socketIdRef.current = socketRef.current.id
 
-            socketRef.current.on("chat-message", addMessage);
+            socketRef.current.on("chat-message", addMessage)
 
             socketRef.current.on("media-state-change", (socketId, mediaState) => {
-                if (!isMountedRef.current) return;
+                if (!isMountedRef.current) return
 
-                setRemoteUserStates(prev => ({
+                setRemoteUserStates((prev) => ({
                     ...prev,
-                    [socketId]: mediaState
-                }));
-            });
+                    [socketId]: mediaState,
+                }))
+            })
 
             socketRef.current.on("user-left", (id) => {
-                if (!isMountedRef.current) return;
+                if (!isMountedRef.current) return
 
-                setVideos(videos => videos.filter(video => video.socketId !== id));
+                setVideos((videos) => videos.filter((video) => video.socketId !== id))
 
-                setRemoteUserStates(prev => {
-                    const newStates = { ...prev };
-                    delete newStates[id];
-                    return newStates;
-                });
+                setRemoteUserStates((prev) => {
+                    const newStates = { ...prev }
+                    delete newStates[id]
+                    return newStates
+                })
 
                 if (connectionsRef.current[id]) {
-                    connectionsRef.current[id].close();
-                    delete connectionsRef.current[id];
+                    connectionsRef.current[id].close()
+                    delete connectionsRef.current[id]
                 }
-            });
+            })
 
             socketRef.current.on("user-joined", (id, clients, usernames, existingMediaStates) => {
-                clients.forEach(socketListId => {
-                    if (connectionsRef.current[socketListId]) return;
+                clients.forEach((socketListId) => {
+                    if (connectionsRef.current[socketListId]) return
 
-                    const peerConnection = new RTCPeerConnection(PEER_CONFIG);
-                    connectionsRef.current[socketListId] = peerConnection;
+                    const peerConnection = new RTCPeerConnection(PEER_CONFIG)
+                    connectionsRef.current[socketListId] = peerConnection
 
-                    peerConnection.onicecandidate = event => {
+                    peerConnection.onicecandidate = (event) => {
                         if (event.candidate) {
-                            socketRef.current?.emit("signal", socketListId, JSON.stringify({
-                                ice: event.candidate
-                            }));
+                            socketRef.current?.emit(
+                                "signal",
+                                socketListId,
+                                JSON.stringify({
+                                    ice: event.candidate,
+                                }),
+                            )
                         }
-                    };
+                    }
 
-                    peerConnection.ontrack = event => {
-                        if (socketListId === socketIdRef.current || !isMountedRef.current) return;
+                    peerConnection.ontrack = (event) => {
+                        if (socketListId === socketIdRef.current || !isMountedRef.current) return
 
-                        console.log(`Received track from ${socketListId}:`, event.track.kind, event.track.enabled);
+                        console.log(`Received track from ${socketListId}:`, event.track.kind, event.track.enabled, event.track.label)
 
                         event.track.onunmute = () => {
-                            console.log(`Track ${event.track.kind} unmuted for ${socketListId}`);
-                            setVideos(videos => videos.map(v =>
-                                v.socketId === socketListId
-                                    ? { ...v, streamId: event.streams[0].id + '-' + Date.now() }
-                                    : v
-                            ));
-                        };
+                            console.log(`Track ${event.track.kind} unmuted for ${socketListId}`)
+                            setVideos((videos) => {
+                                const video = videos.find((v) => v.socketId === socketListId)
+                                if (video) {
+                                    return videos.map((v) =>
+                                        v.socketId === socketListId ? { ...v, streamId: event.streams[0].id + "-" + Date.now() } : v,
+                                    )
+                                }
+                                return videos
+                            })
+                        }
 
                         event.track.onmute = () => {
-                            console.log(`Track ${event.track.kind} muted for ${socketListId}`);
-                        };
+                            console.log(`Track ${event.track.kind} muted for ${socketListId}`)
+                        }
 
-                        setVideos(videos => {
-                            const exists = videos.find(v => v.socketId === socketListId);
+                        event.track.onended = () => {
+                            console.log(`Track ${event.track.kind} ended for ${socketListId}`)
+                        }
+
+                        setVideos((videos) => {
+                            const exists = videos.find((v) => v.socketId === socketListId)
 
                             if (exists) {
-                                return videos.map(v =>
+                                console.log(`Updating stream for existing peer ${socketListId}`)
+                                return videos.map((v) =>
                                     v.socketId === socketListId
                                         ? {
                                             ...v,
                                             stream: event.streams[0],
                                             username: usernames[socketListId],
-                                            streamId: event.streams[0].id + '-' + Date.now()
+                                            streamId: event.streams[0].id + "-" + Date.now(),
                                         }
-                                        : v
-                                );
+                                        : v,
+                                )
                             } else {
-                                return [...videos, {
-                                    socketId: socketListId,
-                                    stream: event.streams[0],
-                                    username: usernames[socketListId],
-                                    streamId: event.streams[0].id + '-' + Date.now(),
-                                    autoplay: true,
-                                    playsinline: true
-                                }];
+                                console.log(`Adding new video for peer ${socketListId}`)
+                                return [
+                                    ...videos,
+                                    {
+                                        socketId: socketListId,
+                                        stream: event.streams[0],
+                                        username: usernames[socketListId],
+                                        streamId: event.streams[0].id + "-" + Date.now(),
+                                        autoplay: true,
+                                        playsinline: true,
+                                    },
+                                ]
                             }
-                        });
-                    };
+                        })
+                    }
 
-                    const streamToAdd = localStreamRef.current || createBlackSilenceStream();
-                    streamToAdd.getTracks().forEach(track => {
-                        peerConnection.addTrack(track, streamToAdd);
-                    });
-                });
+                    // Inside connectToSocketServer, in the user-joined handler:
+                    const streamToAdd = localStreamRef.current || createBlackSilenceStream()
+
+                    // Ensure stream has both video and audio tracks
+                    const videoTracks = streamToAdd.getVideoTracks()
+                    const audioTracks = streamToAdd.getAudioTracks()
+
+                    if (videoTracks.length === 0) {
+                        console.warn(`No video track, adding black video for peer ${socketListId}`)
+                        const blackVideo = createBlackVideoTrack(BLACK_VIDEO_DIMS)
+                        blackVideo.enabled = false
+                        streamToAdd.addTrack(blackVideo)
+                    }
+
+                    if (audioTracks.length === 0) {
+                        console.warn(`No audio track, adding silent audio for peer ${socketListId}`)
+                        const silentAudio = createSilentAudioTrack()
+                        silentAudio.enabled = false
+                        streamToAdd.addTrack(silentAudio)
+                    }
+
+                    console.log(`Adding tracks to peer ${socketListId}:`, {
+                        videoTracks: streamToAdd.getVideoTracks().length,
+                        audioTracks: streamToAdd.getAudioTracks().length,
+                        isScreenShare: isScreenSharingRef.current,
+                        videoEnabled: streamToAdd.getVideoTracks()[0]?.enabled,
+                        audioEnabled: streamToAdd.getAudioTracks()[0]?.enabled
+                    })
+
+                    streamToAdd.getTracks().forEach((track) => {
+                        peerConnection.addTrack(track, streamToAdd)
+                    })
+                })
 
                 if (id === socketIdRef.current && existingMediaStates) {
-                    setRemoteUserStates(existingMediaStates);
+                    setRemoteUserStates(existingMediaStates)
                 }
 
                 if (id === socketIdRef.current) {
                     setTimeout(() => {
-                        broadcastMediaState();
-                    }, 500);
+                        broadcastMediaState()
+                    }, 500)
 
+                    // Inside the user-joined event handler, in the offer creation section:
                     Object.entries(connectionsRef.current).forEach(([id2, connection]) => {
-                        if (id2 === socketIdRef.current) return;
+                        if (id2 === socketIdRef.current) return
 
-                        connection.createOffer()
-                            .then(description => connection.setLocalDescription(description))
+                        console.log(`Creating offer for peer ${id2}, current screen state:`, isScreenSharingRef.current)
+
+                        connection
+                            .createOffer()
+                            .then((description) => connection.setLocalDescription(description))
                             .then(() => {
-                                socketRef.current?.emit("signal", id2, JSON.stringify({
-                                    sdp: connection.localDescription
-                                }));
+                                socketRef.current?.emit(
+                                    "signal",
+                                    id2,
+                                    JSON.stringify({
+                                        sdp: connection.localDescription,
+                                    }),
+                                )
+                                console.log(`Sent offer to ${id2}`)
                             })
-                            .catch(e => console.error("Offer error:", e));
-                    });
+                            .catch((e) => console.error("Offer error:", e))
+                    })
                 }
-            });
-        });
-    }, [username, gotMessageFromServer, addMessage, createBlackSilenceStream, broadcastMediaState]);
+            })
+        })
+    }, [username, gotMessageFromServer, addMessage, createBlackSilenceStream, broadcastMediaState])
 
     const cleanupCall = useCallback(() => {
         try {
-            stopLocalStream();
+            stopLocalStream()
 
-            Object.values(connectionsRef.current).forEach(connection => {
-                connection.close();
-            });
-            connectionsRef.current = {};
+            // Stop dedicated audio stream
+            if (dedicatedAudioStreamRef.current) {
+                dedicatedAudioStreamRef.current.getTracks().forEach(track => track.stop())
+                dedicatedAudioStreamRef.current = null
+            }
+
+            Object.values(connectionsRef.current).forEach((connection) => {
+                connection.close()
+            })
+            connectionsRef.current = {}
 
             if (socketRef.current) {
-                socketRef.current.off();
-                socketRef.current.disconnect();
-                socketRef.current = null;
+                socketRef.current.off()
+                socketRef.current.disconnect()
+                socketRef.current = null
             }
         } catch (e) {
-            console.error("Cleanup error:", e);
+            console.error("Cleanup error:", e)
         }
-    }, [stopLocalStream]);
+    }, [stopLocalStream])
 
     const getPermissions = useCallback(async () => {
         try {
-            const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            setVideoAvailable(true);
-            videoStream.getTracks().forEach(track => track.stop());
-            console.log('Video permission granted');
+            const videoStream = await navigator.mediaDevices.getUserMedia({ video: true })
+            setVideoAvailable(true)
+            videoStream.getTracks().forEach((track) => track.stop())
+            console.log("Video permission granted")
         } catch (error) {
-            console.log("Video permission denied or not available:", error.name);
-            setVideoAvailable(false);
+            console.log("Video permission denied or not available:", error.name)
+            setVideoAvailable(false)
         }
 
         try {
-            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            setAudioAvailable(true);
-            audioStream.getTracks().forEach(track => track.stop());
-            console.log('Audio permission granted');
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            setAudioAvailable(true)
+            audioStream.getTracks().forEach((track) => track.stop())
+            console.log("Audio permission granted")
         } catch (error) {
-            console.log("Audio permission denied or not available:", error.name);
-            setAudioAvailable(false);
+            console.log("Audio permission denied or not available:", error.name)
+            setAudioAvailable(false)
         }
 
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
-        const hasScreenShare = !isMobile && !!(navigator.mediaDevices.getDisplayMedia ||
-            navigator.getDisplayMedia ||
-            (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia));
+        const hasScreenShare =
+            !isMobile &&
+            !!(
+                navigator.mediaDevices.getDisplayMedia ||
+                navigator.getDisplayMedia ||
+                (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)
+            )
 
-        setScreenAvailable(hasScreenShare);
+        setScreenAvailable(hasScreenShare)
 
         if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
             try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                setHasMultipleCameras(videoDevices.length > 1);
-                console.log(`Found ${videoDevices.length} camera(s)`);
+                const devices = await navigator.mediaDevices.enumerateDevices()
+                const videoDevices = devices.filter((device) => device.kind === "videoinput")
+                setHasMultipleCameras(videoDevices.length > 1)
+                console.log(`Found ${videoDevices.length} camera(s)`)
             } catch (e) {
-                console.log('Could not enumerate devices:', e);
-                setHasMultipleCameras(false);
+                console.log("Could not enumerate devices:", e)
+                setHasMultipleCameras(false)
             }
         }
 
         if (isMobile) {
-            console.log('Mobile device detected - screen sharing disabled');
+            console.log("Mobile device detected - screen sharing disabled")
         }
-    }, []);
+    }, [])
 
     useEffect(() => {
-        getPermissions();
-        isMountedRef.current = true;
+        getPermissions()
+        isMountedRef.current = true
 
         return () => {
-            isMountedRef.current = false;
-            cleanupCall();
-        };
-    }, [getPermissions, cleanupCall]);
+            isMountedRef.current = false
+            cleanupCall()
+        }
+    }, [getPermissions, cleanupCall])
 
     useEffect(() => {
         const handleBeforeUnload = () => {
             if (!askForUsername) {
-                cleanupCall();
+                cleanupCall()
             }
-        };
+        }
 
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [askForUsername, cleanupCall]);
+        window.addEventListener("beforeunload", handleBeforeUnload)
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+    }, [askForUsername, cleanupCall])
 
     useEffect(() => {
-        if (!askForUsername && !localStreamRef.current && !isScreenSharingRef.current) {
-            console.log('Getting user media for the first time on join');
-            getUserMedia();
+        if (!askForUsername && !localStreamRef.current && !isScreenSharingRef.current && !isGettingUserMediaRef.current) {
+            console.log("Getting user media for the first time on join")
+            getUserMedia().then(() => {
+                console.log("Initial getUserMedia complete, stream ready:", {
+                    hasStream: !!localStreamRef.current,
+                    videoTracks: localStreamRef.current?.getVideoTracks().length,
+                    audioTracks: localStreamRef.current?.getAudioTracks().length
+                })
+            })
         }
-    }, [askForUsername, getUserMedia]);
+    }, [askForUsername, getUserMedia])
 
     useEffect(() => {
         if (!askForUsername) {
-            getDisplayMedia();
+            getDisplayMedia()
         }
-    }, [screen, askForUsername, getDisplayMedia]);
+    }, [screen, askForUsername])
 
     useEffect(() => {
         if (!askForUsername) {
-            broadcastMediaState();
+            broadcastMediaState()
         }
-    }, [video, audio, screen, askForUsername, broadcastMediaState]);
+    }, [video, audio, screen, askForUsername, broadcastMediaState])
 
     useEffect(() => {
         if (chatEndRef.current) {
-            chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+            chatEndRef.current.scrollIntoView({ behavior: "smooth" })
         }
-    }, [messages]);
+    }, [messages])
 
     useEffect(() => {
-        videos.forEach(video => {
-            const videoElement = videoRefs.current[video.socketId];
-            const userState = remoteUserStates[video.socketId];
+        videos.forEach((video) => {
+            const videoElement = videoRefs.current[video.socketId]
+            const userState = remoteUserStates[video.socketId] || {}
 
-            if (videoElement && video.stream && userState) {
+            if (videoElement && video.stream) {
+                // Always update srcObject if it's different
+                if (videoElement.srcObject !== video.stream) {
+                    console.log(`Updating video element srcObject for ${video.socketId}`)
+                    videoElement.srcObject = video.stream
+                    videoElement.play().catch((e) => console.log("Play error:", e))
+                } else {
+                    // Even if same stream, check if tracks changed
+                    const currentTracks = videoElement.srcObject?.getTracks() || []
+                    const newTracks = video.stream?.getTracks() || []
+
+                    if (currentTracks.length !== newTracks.length) {
+                        console.log(`Track count changed for ${video.socketId}, refreshing`)
+                        videoElement.srcObject = video.stream
+                        videoElement.play().catch((e) => console.log("Play error:", e))
+                    }
+                }
+
+                // Ensure video is playing if it should be
                 if (userState.video === true || userState.screen === true) {
-                    if (videoElement.srcObject !== video.stream) {
-                        console.log(`Refreshing video element for ${video.socketId}`);
-                        videoElement.srcObject = video.stream;
-                        videoElement.play().catch(e => console.log('Play error on state change:', e));
-                    } else if (videoElement.paused) {
-                        videoElement.play().catch(e => console.log('Play error:', e));
+                    if (videoElement.paused) {
+                        console.log(`Video paused but should be playing for ${video.socketId}, playing now`)
+                        videoElement.play().catch((e) => console.log("Play error:", e))
                     }
                 }
             }
-        });
-    }, [videos, remoteUserStates]);
+        })
+    }, [videos, remoteUserStates])
 
     const connect = useCallback(() => {
-        setAskForUsername(false);
+        setAskForUsername(false)
 
         if (videoAvailable || audioAvailable) {
-            setVideo(videoAvailable);
-            setAudio(audioAvailable);
-            audioStateRef.current = audioAvailable;
+            setVideo(videoAvailable)
+            setAudio(audioAvailable)
+            audioStateRef.current = audioAvailable
         } else {
-            setVideo(false);
-            setAudio(false);
-            audioStateRef.current = false;
-            const blackSilence = createBlackSilenceStream();
-            localStreamRef.current = blackSilence;
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = blackSilence;
-            }
+            setVideo(false)
+            setAudio(false)
+            audioStateRef.current = false
         }
 
-        connectToSocketServer();
-    }, [videoAvailable, audioAvailable, createBlackSilenceStream, connectToSocketServer]);
-
+        // Don't create stream here - let getUserMedia handle it after socket connection
+        connectToSocketServer()
+    }, [videoAvailable, audioAvailable, connectToSocketServer])
     const handleVideo = useCallback(() => {
         if (!screen) {
-            setVideo(prev => !prev);
+            setVideo((prev) => !prev)
         }
-    }, [screen]);
+    }, [screen])
 
     const handleAudio = useCallback(() => {
-        setAudio(prev => {
-            const newState = !prev;
-            audioStateRef.current = newState;
+        setAudio((prev) => {
+            const newState = !prev
+            audioStateRef.current = newState
 
             // Immediately apply to current stream
             if (localStreamRef.current) {
-                const audioTracks = localStreamRef.current.getAudioTracks();
-                audioTracks.forEach(track => {
-                    if (track.label && !track.label.includes('MediaStreamAudioDestinationNode')) {
-                        track.enabled = newState;
-                        console.log('Audio toggled to:', newState);
+                const audioTracks = localStreamRef.current.getAudioTracks()
+                audioTracks.forEach((track) => {
+                    if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
+                        track.enabled = newState
+                        console.log("Audio toggled to:", newState, "Track:", track.label)
                     }
-                });
+                })
             }
 
-            return newState;
-        });
-    }, []);
+            // Broadcast the change immediately
+            if (socketRef.current) {
+                socketRef.current.emit("media-state-change", {
+                    video: video,
+                    audio: newState,
+                    screen: screen,
+                })
+            }
+
+            return newState
+        })
+    }, [video, screen])
 
     const handleScreen = useCallback(() => {
-        setScreen(prev => !prev);
-    }, []);
+        setScreen((prev) => !prev)
+    }, [])
 
     const handleCameraToggle = useCallback(async () => {
         if (screen || isScreenSharingRef.current || !videoAvailable || !video) {
-            console.log('Camera toggle blocked');
-            return;
+            console.log("Camera toggle blocked")
+            return
         }
 
         if (isSwitchingCamera || isSwitchingCameraRef.current) {
-            console.log('Camera switch already in progress');
-            return;
+            console.log("Camera switch already in progress")
+            return
         }
 
-        setIsSwitchingCamera(true);
-        isSwitchingCameraRef.current = true;
+        setIsSwitchingCamera(true)
+        isSwitchingCameraRef.current = true
 
-        const newFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
-        console.log('Switching camera to:', newFacingMode);
+        const newFacingMode = cameraFacingMode === "user" ? "environment" : "user"
+        console.log("Switching camera to:", newFacingMode)
 
         // Save audio state before switch
-        const savedAudioState = audioStateRef.current;
-        console.log('Saved audio state before camera switch:', savedAudioState);
+        const savedAudioState = audioStateRef.current
+        console.log("Saved audio state before camera switch:", savedAudioState)
 
         try {
             // Get current audio track
-            let currentAudioTrack = null;
+            let currentAudioTrack = null
             if (localStreamRef.current) {
-                const audioTracks = localStreamRef.current.getAudioTracks();
+                const audioTracks = localStreamRef.current.getAudioTracks()
                 if (audioTracks.length > 0) {
-                    currentAudioTrack = audioTracks[0];
+                    currentAudioTrack = audioTracks[0]
                 }
             }
 
             // Stop only video tracks
             if (localStreamRef.current) {
-                localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+                localStreamRef.current.getVideoTracks().forEach((track) => track.stop())
             }
 
             // Get new video stream
@@ -782,240 +1021,246 @@ export const VideoMeet = () => {
                 video: {
                     width: 1280,
                     height: 720,
-                    facingMode: { exact: newFacingMode }
+                    facingMode: { exact: newFacingMode },
                 },
-                audio: false
-            });
+                audio: false,
+            })
 
-            const newVideoTrack = newVideoStream.getVideoTracks()[0];
-            newVideoTrack.enabled = true;
+            const newVideoTrack = newVideoStream.getVideoTracks()[0]
+            newVideoTrack.enabled = true
 
             // Create new stream with new video and existing audio
-            const newStream = new MediaStream([newVideoTrack]);
+            const newStream = new MediaStream([newVideoTrack])
 
             if (currentAudioTrack) {
-                newStream.addTrack(currentAudioTrack);
+                newStream.addTrack(currentAudioTrack)
                 // Force the saved audio state
-                currentAudioTrack.enabled = savedAudioState;
-                console.log('Audio track preserved with state:', savedAudioState);
+                currentAudioTrack.enabled = savedAudioState
+                console.log("Audio track preserved with state:", savedAudioState)
             }
 
-            localStreamRef.current = newStream;
+            localStreamRef.current = newStream
             if (localVideoRef.current) {
-                localVideoRef.current.srcObject = newStream;
+                localVideoRef.current.srcObject = newStream
             }
 
             // Replace only video track for all peers
             for (const [id, peerConnection] of Object.entries(connectionsRef.current)) {
-                if (id === socketIdRef.current) continue;
+                if (id === socketIdRef.current) continue
 
                 try {
-                    const senders = peerConnection.getSenders();
-                    const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                    const senders = peerConnection.getSenders()
+                    const videoSender = senders.find((s) => s.track && s.track.kind === "video")
 
                     if (videoSender && newVideoTrack) {
-                        await videoSender.replaceTrack(newVideoTrack);
-                        console.log(`Replaced video track for peer ${id}`);
+                        await videoSender.replaceTrack(newVideoTrack)
+                        console.log(`Replaced video track for peer ${id}`)
                     }
                 } catch (e) {
-                    console.error(`Error replacing video for peer ${id}:`, e);
+                    console.error(`Error replacing video for peer ${id}:`, e)
                 }
             }
 
-            setCameraFacingMode(newFacingMode);
+            setCameraFacingMode(newFacingMode)
 
             // Re-enforce audio state after short delay
             setTimeout(() => {
-                enforceAudioState();
-                console.log('Audio state re-enforced after camera switch');
-            }, 150);
+                enforceAudioState()
+                console.log("Audio state re-enforced after camera switch")
+            }, 150)
 
-            console.log('Camera switched successfully');
-
+            console.log("Camera switched successfully")
         } catch (error) {
-            console.error('Camera switch error:', error);
+            console.error("Camera switch error:", error)
 
             // Fallback without exact facingMode
             try {
-                let currentAudioTrack = null;
+                let currentAudioTrack = null
                 if (localStreamRef.current) {
-                    const audioTracks = localStreamRef.current.getAudioTracks();
+                    const audioTracks = localStreamRef.current.getAudioTracks()
                     if (audioTracks.length > 0) {
-                        currentAudioTrack = audioTracks[0];
+                        currentAudioTrack = audioTracks[0]
                     }
                 }
 
                 if (localStreamRef.current) {
-                    localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+                    localStreamRef.current.getVideoTracks().forEach((track) => track.stop())
                 }
 
                 const newVideoStream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         width: 1280,
                         height: 720,
-                        facingMode: newFacingMode
+                        facingMode: newFacingMode,
                     },
-                    audio: false
-                });
+                    audio: false,
+                })
 
-                const newVideoTrack = newVideoStream.getVideoTracks()[0];
-                newVideoTrack.enabled = true;
+                const newVideoTrack = newVideoStream.getVideoTracks()[0]
+                newVideoTrack.enabled = true
 
-                const newStream = new MediaStream([newVideoTrack]);
+                const newStream = new MediaStream([newVideoTrack])
 
                 if (currentAudioTrack) {
-                    newStream.addTrack(currentAudioTrack);
-                    currentAudioTrack.enabled = savedAudioState;
+                    newStream.addTrack(currentAudioTrack)
+                    currentAudioTrack.enabled = savedAudioState
                 }
 
-                localStreamRef.current = newStream;
+                localStreamRef.current = newStream
                 if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = newStream;
+                    localVideoRef.current.srcObject = newStream
                 }
 
                 for (const [id, peerConnection] of Object.entries(connectionsRef.current)) {
-                    if (id === socketIdRef.current) continue;
+                    if (id === socketIdRef.current) continue
 
                     try {
-                        const senders = peerConnection.getSenders();
-                        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                        const senders = peerConnection.getSenders()
+                        const videoSender = senders.find((s) => s.track && s.track.kind === "video")
 
                         if (videoSender && newVideoTrack) {
-                            await videoSender.replaceTrack(newVideoTrack);
+                            await videoSender.replaceTrack(newVideoTrack)
                         }
                     } catch (e) {
-                        console.error(`Error replacing video for peer ${id}:`, e);
+                        console.error(`Error replacing video for peer ${id}:`, e)
                     }
                 }
 
-                setCameraFacingMode(newFacingMode);
+                setCameraFacingMode(newFacingMode)
 
                 setTimeout(() => {
-                    enforceAudioState();
-                }, 150);
+                    enforceAudioState()
+                }, 150)
 
-                console.log('Camera switched (fallback) successfully');
-
+                console.log("Camera switched (fallback) successfully")
             } catch (fallbackError) {
-                console.error('Fallback camera switch failed:', fallbackError);
+                console.error("Fallback camera switch failed:", fallbackError)
             }
         } finally {
             setTimeout(() => {
-                setIsSwitchingCamera(false);
-                isSwitchingCameraRef.current = false;
+                setIsSwitchingCamera(false)
+                isSwitchingCameraRef.current = false
                 // Final audio state enforcement
-                enforceAudioState();
-                console.log('Camera switch complete');
-            }, 200);
+                enforceAudioState()
+                console.log("Camera switch complete")
+            }, 200)
         }
-    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, enforceAudioState]);
+    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, enforceAudioState])
 
     const handleChat = useCallback(() => {
-        setShowModal(prev => {
+        setShowModal((prev) => {
             if (!prev) {
-                setNewMessages(0);
+                setNewMessages(0)
             }
-            return !prev;
-        });
-    }, []);
+            return !prev
+        })
+    }, [])
 
     const sendMessage = useCallback(() => {
         if (message.trim() && socketRef.current) {
-            socketRef.current.emit("chat-message", message, username);
-            setMessage("");
+            socketRef.current.emit("chat-message", message, username)
+            setMessage("")
         }
-    }, [message, username]);
+    }, [message, username])
 
     const handleEndCall = useCallback(() => {
         try {
-            stopLocalStream();
+            stopLocalStream()
 
-            Object.values(connectionsRef.current).forEach(connection => {
-                connection.close();
-            });
-            connectionsRef.current = {};
+            Object.values(connectionsRef.current).forEach((connection) => {
+                connection.close()
+            })
+            connectionsRef.current = {}
 
             if (socketRef.current) {
-                socketRef.current.emit("leave-call");
-                socketRef.current.off();
-                socketRef.current.disconnect();
-                socketRef.current = null;
+                socketRef.current.emit("leave-call")
+                socketRef.current.off()
+                socketRef.current.disconnect()
+                socketRef.current = null
             }
 
-            setVideos([]);
-            setVideo(false);
-            setAudio(false);
-            setScreen(false);
-            setMessages([]);
-            setNewMessages(0);
-            setShowModal(false);
-            isScreenSharingRef.current = false;
+            setVideos([])
+            setVideo(false)
+            setAudio(false)
+            setScreen(false)
+            setMessages([])
+            setNewMessages(0)
+            setShowModal(false)
+            isScreenSharingRef.current = false
         } catch (e) {
-            console.error("End call error:", e);
+            console.error("End call error:", e)
         } finally {
-            navigate("/home");
+            navigate("/home")
         }
-    }, [navigate, stopLocalStream]);
+    }, [navigate, stopLocalStream])
 
     const gridLayout = useMemo(() => {
-        const count = videos.length;
-        const isMobile = window.innerWidth < 768;
+        const count = videos.length
+        const isMobile = window.innerWidth < 768
 
-        if (count === 0) return { cols: 1, rows: 1 };
-        if (count === 1) return { cols: 1, rows: 1 };
+        if (count === 0) return { cols: 1, rows: 1 }
+        if (count === 1) return { cols: 1, rows: 1 }
 
         if (isMobile) {
-            if (count === 2) return { cols: 1, rows: 2 };
-            if (count <= 4) return { cols: 2, rows: 2 };
-            if (count <= 6) return { cols: 2, rows: 3 };
-            return { cols: 2, rows: Math.ceil(count / 2) };
+            if (count === 2) return { cols: 1, rows: 2 }
+            if (count <= 4) return { cols: 2, rows: 2 }
+            if (count <= 6) return { cols: 2, rows: 3 }
+            return { cols: 2, rows: Math.ceil(count / 2) }
         }
 
-        if (count === 2) return { cols: 2, rows: 1 };
-        if (count <= 4) return { cols: 2, rows: 2 };
-        if (count <= 6) return { cols: 3, rows: 2 };
-        if (count <= 9) return { cols: 3, rows: 3 };
-        return { cols: 4, rows: Math.ceil(count / 4) };
-    }, [videos.length]);
+        if (count === 2) return { cols: 2, rows: 1 }
+        if (count <= 4) return { cols: 2, rows: 2 }
+        if (count <= 6) return { cols: 3, rows: 2 }
+        if (count <= 9) return { cols: 3, rows: 3 }
+        return { cols: 4, rows: Math.ceil(count / 4) }
+    }, [videos.length])
 
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !screen) {
-            const videoTracks = localStreamRef.current.getVideoTracks();
+            const videoTracks = localStreamRef.current.getVideoTracks()
 
-            videoTracks.forEach(track => {
-                if (track.label && !track.label.includes('canvas')) {
-                    track.enabled = video;
+            videoTracks.forEach((track) => {
+                if (track.label && !track.label.includes("canvas")) {
+                    track.enabled = video
                 }
-            });
+            })
 
-            broadcastMediaState();
+            broadcastMediaState()
         }
-    }, [video, askForUsername, screen, broadcastMediaState]);
+    }, [video, askForUsername, screen, broadcastMediaState])
 
     useEffect(() => {
         if (!askForUsername && localStreamRef.current) {
             if (isSwitchingCamera || isSwitchingCameraRef.current) {
-                return;
+                return
             }
 
-            const audioTracks = localStreamRef.current.getAudioTracks();
-            audioTracks.forEach(track => {
-                if (track.label && !track.label.includes('MediaStreamAudioDestinationNode')) {
-                    track.enabled = audioStateRef.current;
+            const audioTracks = localStreamRef.current.getAudioTracks()
+            audioTracks.forEach((track) => {
+                if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
+                    track.enabled = audioStateRef.current
                 }
-            });
+            })
 
             setTimeout(() => {
-                broadcastMediaState();
-            }, 50);
+                broadcastMediaState()
+            }, 50)
         }
-    }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState]);
+    }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState])
 
     useEffect(() => {
-        if (!askForUsername && !screen && !isScreenSharingRef.current && !isSwitchingCamera && !isSwitchingCameraRef.current) {
-            getUserMedia();
+        if (
+            !askForUsername &&
+            !screen &&
+            !isScreenSharingRef.current &&
+            !isSwitchingCamera &&
+            !isSwitchingCameraRef.current &&
+            !isScreenShareOperationRef.current &&
+            !isGettingUserMediaRef.current  // Add this check
+        ) {
+            getUserMedia()
         }
-    }, [cameraFacingMode, askForUsername, screen, isSwitchingCamera, getUserMedia]);
+    }, [cameraFacingMode, askForUsername, screen, isSwitchingCamera, getUserMedia])
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
@@ -1036,7 +1281,7 @@ export const VideoMeet = () => {
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && username.trim() && connect()}
+                            onKeyPress={(e) => e.key === "Enter" && username.trim() && connect()}
                             placeholder="Your name"
                             className="w-full px-4 py-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-black bg-white shadow-lg transition-all"
                         />
@@ -1048,11 +1293,11 @@ export const VideoMeet = () => {
                                     <div>
                                         <p className="text-white font-medium text-sm">Camera</p>
                                         <p className="text-gray-400 text-xs">
-                                            {videoAvailable ? 'Permission granted' : 'Not available or denied'}
+                                            {videoAvailable ? "Permission granted" : "Not available or denied"}
                                         </p>
                                     </div>
                                 </div>
-                                <div className={`w-3 h-3 rounded-full ${videoAvailable ? 'bg-green-500' : 'bg-red-500'}`} />
+                                <div className={`w-3 h-3 rounded-full ${videoAvailable ? "bg-green-500" : "bg-red-500"}`} />
                             </div>
 
                             <div className="flex items-center justify-between p-4 bg-white/10 rounded-xl border border-white/20">
@@ -1061,11 +1306,11 @@ export const VideoMeet = () => {
                                     <div>
                                         <p className="text-white font-medium text-sm">Microphone</p>
                                         <p className="text-gray-400 text-xs">
-                                            {audioAvailable ? 'Permission granted' : 'Not available or denied'}
+                                            {audioAvailable ? "Permission granted" : "Not available or denied"}
                                         </p>
                                     </div>
                                 </div>
-                                <div className={`w-3 h-3 rounded-full ${audioAvailable ? 'bg-green-500' : 'bg-red-500'}`} />
+                                <div className={`w-3 h-3 rounded-full ${audioAvailable ? "bg-green-500" : "bg-red-500"}`} />
                             </div>
 
                             {hasMultipleCameras && videoAvailable && (
@@ -1077,7 +1322,7 @@ export const VideoMeet = () => {
                                 >
                                     <SwitchCamera size={18} />
                                     <span className="text-sm font-medium">
-                                        Switch to {cameraFacingMode === 'user' ? 'Back' : 'Front'} Camera
+                                        Switch to {cameraFacingMode === "user" ? "Back" : "Front"} Camera
                                     </span>
                                 </motion.button>
                             )}
@@ -1109,7 +1354,7 @@ export const VideoMeet = () => {
                             className="w-full h-full grid gap-2 md:gap-3"
                             style={{
                                 gridTemplateColumns: `repeat(${gridLayout.cols}, 1fr)`,
-                                gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`
+                                gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`,
                             }}
                         >
                             {videos.length === 0 ? (
@@ -1128,34 +1373,39 @@ export const VideoMeet = () => {
                                 </div>
                             ) : (
                                 videos.map((video) => {
-                                    const userState = remoteUserStates[video.socketId] || {};
-                                    const isVideoOff = userState.video === false && userState.screen === false;
-                                    const isAudioOff = userState.audio === false;
-                                    const isScreenSharing = userState.screen === true;
+                                    const userState = remoteUserStates[video.socketId] || {}
+                                    const isVideoOff = userState.video !== true && userState.screen !== true
+                                    const isAudioOff = userState.audio === false
+                                    const isScreenSharing = userState.screen === true
 
                                     return (
-                                        <div key={`${video.socketId}-${video.streamId}`} className="relative rounded-lg md:rounded-xl overflow-hidden bg-gray-900 border border-white/10">
+                                        <div
+                                            key={`${video.socketId}-${video.streamId}`}
+                                            className="relative rounded-lg md:rounded-xl overflow-hidden bg-gray-900 border border-white/10"
+                                        >
                                             <video
-                                                key={video.streamId}
-                                                ref={ref => {
+                                                key={`${video.socketId}-${video.streamId}`}
+                                                ref={(ref) => {
                                                     if (ref) {
-                                                        videoRefs.current[video.socketId] = ref;
+                                                        videoRefs.current[video.socketId] = ref
                                                         if (video.stream && ref.srcObject !== video.stream) {
-                                                            ref.srcObject = video.stream;
-                                                            ref.play().catch(e => console.log('Play error:', e));
+                                                            console.log(`Setting srcObject for ${video.socketId} in render`)
+                                                            ref.srcObject = video.stream
+                                                            ref.play().catch((e) => console.log("Play error:", e))
                                                         }
                                                     }
                                                 }}
                                                 autoPlay
                                                 playsInline
                                                 muted={false}
-                                                className={`w-full h-full object-contain bg-black transition-opacity duration-300 ${isVideoOff ? 'opacity-0' : 'opacity-100'}`}
+                                                className={`w-full h-full object-contain bg-black transition-opacity duration-300 ${isVideoOff ? "opacity-0" : "opacity-100"}`}
+                                                style={{ display: isVideoOff ? 'none' : 'block' }}
                                             />
                                             {isVideoOff && (
                                                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
                                                     <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
                                                         <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.charAt(0).toUpperCase() || 'U'}
+                                                            {video.username?.charAt(0).toUpperCase() || "U"}
                                                         </span>
                                                     </div>
                                                     <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
@@ -1179,7 +1429,7 @@ export const VideoMeet = () => {
                                                 </div>
                                             )}
                                         </div>
-                                    );
+                                    )
                                 })
                             )}
                         </div>
@@ -1192,7 +1442,7 @@ export const VideoMeet = () => {
                             muted
                             playsInline
                             className="w-full h-full object-contain bg-black"
-                            style={{ transform: screen ? 'none' : 'scaleX(-1)' }}
+                            style={{ transform: screen ? "none" : "scaleX(-1)" }}
                         />
                         {!video && !screen && (
                             <div className="absolute inset-0 bg-black flex items-center justify-center">
@@ -1200,7 +1450,7 @@ export const VideoMeet = () => {
                             </div>
                         )}
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-1 text-center text-xs text-white font-semibold truncate">
-                            {username} (You) {screen && '- Sharing'}
+                            {username} (You) {screen && "- Sharing"}
                         </div>
                         {!audio && (
                             <div className="absolute top-1 right-1 bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
@@ -1216,12 +1466,20 @@ export const VideoMeet = () => {
                             onClick={handleVideo}
                             disabled={screen || !videoAvailable}
                             className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
                                 : video
-                                    ? 'bg-gray-200 text-black hover:bg-gray-300'
-                                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                                    ? "bg-gray-200 text-black hover:bg-gray-300"
+                                    : "bg-orange-500 text-white hover:bg-orange-600"
                                 }`}
-                            title={!videoAvailable ? 'Camera not available' : screen ? 'Stop screen sharing first' : (video ? 'Turn off camera' : 'Turn on camera')}
+                            title={
+                                !videoAvailable
+                                    ? "Camera not available"
+                                    : screen
+                                        ? "Stop screen sharing first"
+                                        : video
+                                            ? "Turn off camera"
+                                            : "Turn on camera"
+                            }
                         >
                             {video ? <Video size={18} className="md:w-5 md:h-5" /> : <VideoOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
@@ -1232,12 +1490,12 @@ export const VideoMeet = () => {
                             onClick={handleAudio}
                             disabled={!audioAvailable}
                             className={`p-2.5 md:p-3.5 rounded-full transition-all ${!audioAvailable
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
                                 : audio
-                                    ? 'bg-gray-200 text-black hover:bg-gray-300'
-                                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                                    ? "bg-gray-200 text-black hover:bg-gray-300"
+                                    : "bg-orange-500 text-white hover:bg-orange-600"
                                 }`}
-                            title={!audioAvailable ? 'Microphone not available' : (audio ? 'Mute' : 'Unmute')}
+                            title={!audioAvailable ? "Microphone not available" : audio ? "Mute" : "Unmute"}
                         >
                             {audio ? <Mic size={18} className="md:w-5 md:h-5" /> : <MicOff size={18} className="md:w-5 md:h-5" />}
                         </motion.button>
@@ -1249,10 +1507,18 @@ export const VideoMeet = () => {
                                 onClick={handleCameraToggle}
                                 disabled={screen || !videoAvailable || isSwitchingCamera}
                                 className={`p-2.5 md:p-3.5 rounded-full transition-all ${screen || !videoAvailable || isSwitchingCamera
-                                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
-                                    : 'bg-gray-200 text-black hover:bg-gray-300'
+                                    ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
+                                    : "bg-gray-200 text-black hover:bg-gray-300"
                                     }`}
-                                title={!videoAvailable ? 'Camera not available' : screen ? 'Stop screen sharing first' : isSwitchingCamera ? 'Switching...' : `Switch to ${cameraFacingMode === 'user' ? 'back' : 'front'} camera`}
+                                title={
+                                    !videoAvailable
+                                        ? "Camera not available"
+                                        : screen
+                                            ? "Stop screen sharing first"
+                                            : isSwitchingCamera
+                                                ? "Switching..."
+                                                : `Switch to ${cameraFacingMode === "user" ? "back" : "front"} camera`
+                                }
                             >
                                 <SwitchCamera size={18} className="md:w-5 md:h-5" />
                             </motion.button>
@@ -1264,23 +1530,27 @@ export const VideoMeet = () => {
                             onClick={handleScreen}
                             disabled={!screenAvailable}
                             className={`p-2.5 md:p-3.5 rounded-full transition-all ${!screenAvailable
-                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed opacity-50'
+                                ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
                                 : screen
-                                    ? 'bg-orange-500 text-white hover:bg-orange-600'
-                                    : 'bg-gray-200 text-black hover:bg-gray-300'
+                                    ? "bg-orange-500 text-white hover:bg-orange-600"
+                                    : "bg-gray-200 text-black hover:bg-gray-300"
                                 }`}
-                            title={screenAvailable ? (screen ? 'Stop sharing' : 'Share screen') : 'Screen sharing not available'}
+                            title={screenAvailable ? (screen ? "Stop sharing" : "Share screen") : "Screen sharing not available"}
                         >
-                            {screen ? <MonitorUp size={18} className="md:w-5 md:h-5" /> : <MonitorStop size={18} className="md:w-5 md:h-5" />}
+                            {screen ? (
+                                <MonitorUp size={18} className="md:w-5 md:h-5" />
+                            ) : (
+                                <MonitorStop size={18} className="md:w-5 md:h-5" />
+                            )}
                         </motion.button>
 
                         <motion.button
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => {
-                                navigator.clipboard.writeText(window.location.href);
-                                setShowCopyFeedback(true);
-                                setTimeout(() => setShowCopyFeedback(false), 2000);
+                                navigator.clipboard.writeText(window.location.href)
+                                setShowCopyFeedback(true)
+                                setTimeout(() => setShowCopyFeedback(false), 2000)
                             }}
                             className="relative p-2.5 md:p-3.5 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/30"
                             title="Copy meeting link"
@@ -1327,7 +1597,7 @@ export const VideoMeet = () => {
                                     animate={{ scale: 1 }}
                                     className="absolute -top-1 -right-1 bg-gradient-to-br from-orange-500 to-orange-600 text-white text-xs font-bold rounded-full w-4 h-4 md:w-5 md:h-5 flex items-center justify-center shadow-lg"
                                 >
-                                    {newMessages > 9 ? '9+' : newMessages}
+                                    {newMessages > 9 ? "9+" : newMessages}
                                 </motion.div>
                             )}
                         </motion.button>
@@ -1345,12 +1615,12 @@ export const VideoMeet = () => {
                     <AnimatePresence>
                         {showModal && (
                             <motion.div
-                                initial={{ y: '100%' }}
+                                initial={{ y: "100%" }}
                                 animate={{ y: 0 }}
-                                exit={{ y: '100%' }}
-                                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                                exit={{ y: "100%" }}
+                                transition={{ type: "spring", damping: 25, stiffness: 300 }}
                                 className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col"
-                                style={{ height: '80vh' }}
+                                style={{ height: "80vh" }}
                             >
                                 <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-gray-200">
                                     <h3 className="text-lg md:text-xl font-bold text-gray-800">Chat</h3>
@@ -1375,12 +1645,14 @@ export const VideoMeet = () => {
                                                 key={idx}
                                                 initial={{ opacity: 0, y: 10 }}
                                                 animate={{ opacity: 1, y: 0 }}
-                                                className={`flex flex-col ${msg.sender === username ? 'items-end' : 'items-start'}`}
+                                                className={`flex flex-col ${msg.sender === username ? "items-end" : "items-start"}`}
                                             >
-                                                <div className={`max-w-xs md:max-w-md px-4 py-2 rounded-2xl ${msg.sender === username
-                                                    ? 'bg-orange-500 text-white rounded-br-none'
-                                                    : 'bg-gray-200 text-gray-800 rounded-bl-none'
-                                                    }`}>
+                                                <div
+                                                    className={`max-w-xs md:max-w-md px-4 py-2 rounded-2xl ${msg.sender === username
+                                                        ? "bg-orange-500 text-white rounded-br-none"
+                                                        : "bg-gray-200 text-gray-800 rounded-bl-none"
+                                                        }`}
+                                                >
                                                     {msg.sender !== username && (
                                                         <p className="text-xs font-semibold mb-1 opacity-70">{msg.sender}</p>
                                                     )}
@@ -1398,7 +1670,7 @@ export const VideoMeet = () => {
                                             type="text"
                                             value={message}
                                             onChange={(e) => setMessage(e.target.value)}
-                                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                                            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                                             placeholder="Type a message..."
                                             className="flex-1 px-4 py-3 rounded-full bg-white border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                                         />
@@ -1419,5 +1691,5 @@ export const VideoMeet = () => {
                 </>
             )}
         </div>
-    );
-};
+    )
+}
