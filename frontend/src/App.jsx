@@ -23,7 +23,7 @@ const PrivateHistory = withAuth(History);
 
 function App() {
   return (
-    <Router>
+    <Router basename='/'>
       <AuthProvider>
         <Routes>
           {/* Public routes */}
