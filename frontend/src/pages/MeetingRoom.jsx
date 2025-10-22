@@ -84,6 +84,32 @@ export const MeetingRoom = () => {
     const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
     const isScreenShareOperationRef = useRef(false)
 
+
+    // Persist states to sessionStorage whenever they change
+    useEffect(() => {
+        try {
+            sessionStorage.setItem(`meeting_${meetingCode}_video`, JSON.stringify(video))
+        } catch (e) {
+            console.error("Error saving video state:", e)
+        }
+    }, [video, meetingCode])
+
+    useEffect(() => {
+        try {
+            sessionStorage.setItem(`meeting_${meetingCode}_audio`, JSON.stringify(audio))
+        } catch (e) {
+            console.error("Error saving audio state:", e)
+        }
+    }, [audio, meetingCode])
+
+    useEffect(() => {
+        try {
+            sessionStorage.setItem(`meeting_${meetingCode}_cameraFacingMode`, JSON.stringify(cameraFacingMode))
+        } catch (e) {
+            console.error("Error saving camera facing mode:", e)
+        }
+    }, [cameraFacingMode, meetingCode])
+
     useEffect(() => {
         audioStateRef.current = audio
     }, [audio])
