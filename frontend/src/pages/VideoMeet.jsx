@@ -1572,26 +1572,30 @@ export const VideoMeet = () => {
                                             />
                                             {isVideoOff && (
                                                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
-                                                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
-                                                        <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.toUpperCase() || "U"}
-                                                        </span>
-                                                    </div>
                                                     <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
                                                     <p className="text-white/70 text-xs md:text-sm mt-2">Camera Off</p>
                                                 </div>
                                             )}
                                             <div className="absolute top-2 left-2 flex items-center gap-2">
-                                                <div className="text-white text-xs font-medium px-2 py-1 bg-black/50 rounded backdrop-blur-sm">
-                                                    {video.username}
+                                                {/* First-letter logo + full username */}
+                                                <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-1 shadow-md">
+                                                    <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-white font-bold text-base md:text-lg">
+                                                        {video.username?.charAt(0).toUpperCase() || "U"}
+                                                    </div>
+                                                    <span className="text-white font-semibold text-sm md:text-base truncate max-w-[120px]">
+                                                        {video.username || "Unknown"}
+                                                    </span>
                                                 </div>
+
+                                                {/* Screen sharing badge */}
                                                 {isScreenSharing && (
-                                                    <div className="px-2 py-1 bg-green-500/90 rounded backdrop-blur-sm flex items-center gap-1">
+                                                    <div className="px-2 py-1 bg-green-500/90 rounded-full backdrop-blur-sm flex items-center gap-1">
                                                         <MonitorUp size={12} className="text-white" />
                                                         <span className="text-white text-xs font-medium">Sharing</span>
                                                     </div>
                                                 )}
                                             </div>
+
                                             {isAudioOff && (
                                                 <div className="absolute top-2 right-2 bg-red-500/90 p-1.5 rounded-full backdrop-blur-sm">
                                                     <MicOff size={14} className="text-white" />
