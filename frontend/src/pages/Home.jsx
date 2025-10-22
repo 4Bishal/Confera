@@ -6,12 +6,10 @@ import { AuthContext } from "../contexts/AuthContext";
 function Home() {
     const navigate = useNavigate();
     const [meetingCode, setMeetingCode] = useState("");
-    const { logout, addToUserHistory } = useContext(AuthContext);
+    const { logout } = useContext(AuthContext);
 
     const handleJoinVideoCall = async () => {
-        if (!meetingCode.trim()) return;
-        await addToUserHistory(meetingCode);
-        navigate(`/${meetingCode}`);
+        navigate(`/previewMeeting/${meetingCode}`);
     };
 
     const handleKeyPress = (e) => {
@@ -63,6 +61,19 @@ function Home() {
                             onKeyDown={handleKeyPress} // Enter key support
                         />
                         <button
+                            onClick={() => {
+                                const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                                let newRoomId = '';
+                                for (let i = 0; i < 18; i++) {
+                                    newRoomId += characters.charAt(Math.floor(Math.random() * characters.length));
+                                }
+                                setMeetingCode(newRoomId);
+                            }}
+                            className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg shadow-md hover:bg-gray-300 transition-all"
+                        >
+                            Generate-RoomId
+                        </button>
+                        <button
                             onClick={handleJoinVideoCall}
                             className="bg-[#FF9839] text-white px-4 py-2 rounded-lg shadow-md hover:bg-orange-600 transition-all"
                         >
@@ -70,6 +81,7 @@ function Home() {
                         </button>
                     </div>
                 </div>
+
 
                 {/* Right Panel */}
                 <div className="md:w-1/2 flex justify-center">

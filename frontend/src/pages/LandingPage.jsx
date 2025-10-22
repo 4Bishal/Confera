@@ -44,7 +44,7 @@ function LandingPage() {
     // ✅ Function to generate dynamic guest room
     const handleGuestJoin = () => {
         const roomId = uuidv4();
-        router(`/${roomId}`);
+        router(`/previewMeeting/${roomId}`);
     };
     return (
         <div className="min-h-screen flex flex-col bg-gradient-to-b from-white to-gray-50 text-gray-800 overflow-x-hidden">

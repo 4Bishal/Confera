@@ -35,10 +35,10 @@ function App() {
           <Route path="/history" element={<PrivateHistory />} />
 
           {/* VideoMeet is public */}
-          {/* <Route path="/previewMeeting/:meetingCode" element={<PreviewMeeting />} />
-          <Route path="/meeting/:meetingCode" element={<MeetingRoom />} /> */}
+          <Route path="/previewMeeting/:meetingCode" element={<PreviewMeeting />} />
+          <Route path="/meeting/:meetingCode" element={<MeetingRoom />} />
 
-          <Route path='/:meetingCode' element={<VideoMeet />} />
+          {/* <Route path='/:meetingCode' element={<VideoMeet />} /> */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
