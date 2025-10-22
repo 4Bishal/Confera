@@ -1574,7 +1574,7 @@ export const VideoMeet = () => {
                                                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
                                                     <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
                                                         <span className="text-2xl md:text-3xl font-bold text-white">
-                                                            {video.username?.charAt(0).toUpperCase() || "U"}
+                                                            {video.username?.toUpperCase() || "U"}
                                                         </span>
                                                     </div>
                                                     <VideoOff size={24} className="text-white/70 md:w-8 md:h-8" />
