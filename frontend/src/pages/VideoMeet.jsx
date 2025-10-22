@@ -104,12 +104,33 @@ export const VideoMeet = () => {
         return Object.assign(dst.stream.getAudioTracks()[0], { enabled: false })
     }, [])
 
-    const createBlackVideoTrack = useCallback(({ width = 640, height = 480 } = {}) => {
-        const canvas = Object.assign(document.createElement("canvas"), { width, height })
-        canvas.getContext("2d").fillRect(0, 0, width, height)
-        const stream = canvas.captureStream()
-        return Object.assign(stream.getVideoTracks()[0], { enabled: false })
-    }, [])
+    const createBlackVideoTrack = useCallback(({ width = 640, height = 480, fps = 30 } = {}) => {
+        // Create an offscreen canvas
+        const canvas = Object.assign(document.createElement("canvas"), { width, height });
+        const ctx = canvas.getContext("2d");
+
+        // Fill it black
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, width, height);
+
+        // Continuously redraw to keep the track “active”
+        function drawLoop() {
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, width, height);
+            requestAnimationFrame(drawLoop);
+        }
+        drawLoop();
+
+        // Capture a video track from the canvas
+        const stream = canvas.captureStream(fps);
+        const track = stream.getVideoTracks()[0];
+
+        // Ensure track is enabled
+        track.enabled = true;
+
+        return track;
+    }, []);
+
 
     const createBlackSilenceStream = useCallback(() => {
         return new MediaStream([createBlackVideoTrack(BLACK_VIDEO_DIMS), createSilentAudioTrack()])
