@@ -13,7 +13,7 @@ import withAuth from "./utils/withAuth";
 import withPublic from "./utils/withPublic";
 import { PreviewMeeting } from './pages/PreviewMeeting';
 import NotFound from './pages/NotFound';
-import { VideoMeet } from './pages/VideoMeet';
+// import { VideoMeet } from './pages/VideoMeet';
 
 // Wrap components once
 const PublicLanding = withPublic(LandingPage);
