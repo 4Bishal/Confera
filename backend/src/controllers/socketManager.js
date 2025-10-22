@@ -57,6 +57,14 @@ export const connectToSocket = (server) => {
 
             console.log(`Sending existing media states to ${socket.id}:`, existingMediaStates);
 
+            // Initialize default media state for new user
+            // This ensures other users know the new joiner's initial state
+            userMediaStates.set(socket.id, {
+                video: false,
+                audio: false,
+                screen: false
+            });
+
             // Send to all users in room about the new joiner with media states
             roomConnections.forEach(clientId => {
                 io.to(clientId).emit("user-joined", socket.id, clientsList, usernamesObj, existingMediaStates);
@@ -100,19 +108,21 @@ export const connectToSocket = (server) => {
         });
 
         socket.on("media-state-change", (mediaState) => {
+            // Store the media state
             userMediaStates.set(socket.id, mediaState);
 
             const room = findRoomBySocketId(socket.id);
 
             if (room) {
                 const roomConnections = connections.get(room);
+                // Broadcast to all other users in the room
                 roomConnections.forEach(socketId => {
                     if (socketId !== socket.id) {
                         io.to(socketId).emit("media-state-change", socket.id, mediaState);
                     }
                 });
 
-                console.log(`User ${socket.id} media state:`, mediaState);
+                console.log(`User ${socket.id} media state updated:`, mediaState);
             }
         });
 

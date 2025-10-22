@@ -1,5 +1,3 @@
-"use client"
-
 import { useEffect, useState, useRef, useCallback, useMemo } from "react"
 import { io } from "socket.io-client"
 import {
@@ -37,7 +35,8 @@ export const VideoMeet = () => {
     const localStreamRef = useRef(null)
     const persistentAudioTrackRef = useRef(null)
     const chatEndRef = useRef()
-    const audioStateRef = useRef(true) // Track intended audio state
+    const audioStateRef = useRef(true)
+    const videoStateRef = useRef(true)
     const isGettingUserMediaRef = useRef(false)
     const dedicatedAudioStreamRef = useRef(null)
 
@@ -63,20 +62,32 @@ export const VideoMeet = () => {
     const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
     const isScreenShareOperationRef = useRef(false)
 
-    // Synchronize audioStateRef with audio state
     useEffect(() => {
         audioStateRef.current = audio
     }, [audio])
 
-    // Force audio track state to match audioStateRef
-    const enforceAudioState = useCallback(() => {
+    useEffect(() => {
+        videoStateRef.current = video
+    }, [video])
+
+    const enforceTrackStates = useCallback(() => {
         if (localStreamRef.current) {
             const audioTracks = localStreamRef.current.getAudioTracks()
+            const videoTracks = localStreamRef.current.getVideoTracks()
+
             audioTracks.forEach((track) => {
                 if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
                     track.enabled = audioStateRef.current
                 }
             })
+
+            if (!isScreenSharingRef.current) {
+                videoTracks.forEach((track) => {
+                    if (track.label && !track.label.includes("canvas")) {
+                        track.enabled = videoStateRef.current
+                    }
+                })
+            }
         }
     }, [])
 
@@ -151,23 +162,20 @@ export const VideoMeet = () => {
                         const videoTrack = newStream.getVideoTracks()[0]
                         const audioTrack = newStream.getAudioTracks()[0]
 
-                        // Replace video track
                         const videoSender = senders.find((s) => s.track && s.track.kind === "video")
                         if (videoSender && videoTrack) {
                             console.log(`Replacing video track for peer ${id}`)
-                            videoTrack.enabled = true
+                            videoTrack.enabled = isScreenSharingRef.current ? true : videoStateRef.current
                             await videoSender.replaceTrack(videoTrack)
                             await new Promise((resolve) => setTimeout(resolve, 50))
                         }
 
-                        // Replace audio track - preserve the enabled state
                         const audioSender = senders.find((s) => s.track && s.track.kind === "audio")
                         if (audioSender && audioTrack) {
                             if (options.skipAudio) {
                                 console.log(`Skipping audio track replacement for peer ${id}`)
                             } else if (audioSender.track !== audioTrack) {
                                 console.log(`Replacing audio track for peer ${id}`)
-                                // Preserve audio state before replacement
                                 const shouldBeEnabled = audioStateRef.current
                                 audioTrack.enabled = shouldBeEnabled
                                 await audioSender.replaceTrack(audioTrack)
@@ -188,7 +196,6 @@ export const VideoMeet = () => {
 
             await new Promise((resolve) => setTimeout(resolve, 100))
 
-            // Only renegotiate if not skipping
             if (!options.skipRenegotiation) {
                 console.log("All tracks replaced, starting renegotiation...")
                 await renegotiateWithPeers()
@@ -196,12 +203,11 @@ export const VideoMeet = () => {
                 console.log("Skipping renegotiation as requested")
             }
 
-            // Force audio state after any stream replacement
             setTimeout(() => {
-                enforceAudioState()
+                enforceTrackStates()
             }, 150)
         },
-        [renegotiateWithPeers, enforceAudioState],
+        [renegotiateWithPeers, enforceTrackStates],
     )
 
     const stopLocalStream = useCallback(() => {
@@ -238,14 +244,14 @@ export const VideoMeet = () => {
     }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers])
 
     const getUserMedia = useCallback(async () => {
-        // Prevent duplicate calls
         if (isGettingUserMediaRef.current) {
             console.log("getUserMedia already in progress, skipping")
             return
         }
 
-        const requestVideo = videoAvailable && video
-        const requestAudio = audioAvailable
+        // Determine what we should request based on availability AND current state
+        const requestVideo = videoAvailable && videoStateRef.current
+        const requestAudio = audioAvailable && audioStateRef.current
 
         try {
             isGettingUserMediaRef.current = true
@@ -253,8 +259,8 @@ export const VideoMeet = () => {
             let videoStream = null
             let audioStream = null
 
-            // Get audio independently
-            if (requestAudio) {
+            // ALWAYS try to get audio if available, regardless of video
+            if (audioAvailable) {
                 try {
                     audioStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
@@ -270,7 +276,7 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Get video independently
+            // Get video only if available AND video state is true
             if (requestVideo) {
                 try {
                     videoStream = await navigator.mediaDevices.getUserMedia({
@@ -287,24 +293,22 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Stop existing local stream
             stopLocalStream()
 
-            // Create combined stream
             const combinedStream = new MediaStream()
 
             // Add video track (real or black)
             if (videoStream && videoStream.getVideoTracks().length > 0) {
                 const videoTrack = videoStream.getVideoTracks()[0]
-                videoTrack.enabled = video
+                videoTrack.enabled = videoStateRef.current
                 combinedStream.addTrack(videoTrack)
                 videoTrack.onended = handleTrackEnded
-                console.log("Added real video track")
+                console.log("Added real video track with enabled:", videoStateRef.current)
             } else {
                 const blackVideo = createBlackVideoTrack(BLACK_VIDEO_DIMS)
                 blackVideo.enabled = false
                 combinedStream.addTrack(blackVideo)
-                console.log("Added black video track (no video permission)")
+                console.log("Added black video track")
             }
 
             // Add audio track (real or silent)
@@ -315,7 +319,7 @@ export const VideoMeet = () => {
                 persistentAudioTrackRef.current = audioTrack
                 dedicatedAudioStreamRef.current = audioStream
                 audioTrack.onended = handleTrackEnded
-                console.log("Added real audio track with state:", audioStateRef.current)
+                console.log("Added real audio track with enabled:", audioStateRef.current)
             } else {
                 const silentAudio = createSilentAudioTrack()
                 silentAudio.enabled = false
@@ -353,7 +357,6 @@ export const VideoMeet = () => {
     }, [
         videoAvailable,
         audioAvailable,
-        video,
         cameraFacingMode,
         stopLocalStream,
         createBlackVideoTrack,
@@ -373,7 +376,6 @@ export const VideoMeet = () => {
                 try {
                     isScreenShareOperationRef.current = true
 
-                    // Save audio state and track before screen share
                     const savedAudioState = audioStateRef.current
                     let audioTrackToUse = null
 
@@ -397,7 +399,6 @@ export const VideoMeet = () => {
                         audio: false,
                     })
 
-                    // Stop only video tracks, preserve audio
                     if (localStreamRef.current) {
                         localStreamRef.current.getVideoTracks().forEach((track) => track.stop())
                     }
@@ -408,10 +409,8 @@ export const VideoMeet = () => {
                         console.log("Screen video track enabled")
                     })
 
-                    // Add preserved audio track
                     if (audioTrackToUse) {
                         stream.addTrack(audioTrackToUse)
-                        // Restore the saved audio state
                         audioTrackToUse.enabled = savedAudioState
                         console.log("Audio track preserved with state:", savedAudioState)
                     }
@@ -422,7 +421,6 @@ export const VideoMeet = () => {
                     }
                     isScreenSharingRef.current = true
 
-                    // Replace stream for existing peers
                     const peerCount = Object.keys(connectionsRef.current).length
                     console.log(`Screen share started, ${peerCount} peer(s) connected`)
 
@@ -432,17 +430,14 @@ export const VideoMeet = () => {
                         console.log("No peers yet, screen share will be sent when peers join")
                     }
 
-                    // Enforce audio state after screen share is established
                     setTimeout(() => {
-                        enforceAudioState()
-                        console.log("Audio state enforced after screen share")
+                        enforceTrackStates()
+                        console.log("Track states enforced after screen share")
                     }, 200)
 
                     stream.getVideoTracks().forEach((track) => {
                         track.onended = () => {
                             console.log("Screen share ended by user")
-                            // Don't change these flags here - let the useEffect handle it
-                            // This prevents race conditions with audio state
                             if (isMountedRef.current) {
                                 setScreen(false)
                             }
@@ -462,38 +457,37 @@ export const VideoMeet = () => {
         } else {
             isScreenShareOperationRef.current = false
         }
-    }, [screen, replaceStreamForPeers, enforceAudioState])
+    }, [screen, replaceStreamForPeers, enforceTrackStates])
 
     useEffect(() => {
         if (!screen && isScreenSharingRef.current && !askForUsername && !isGettingUserMediaRef.current) {
             console.log("Screen share stopped, returning to camera")
 
-            // CRITICAL: Save audio state BEFORE any operations
             const savedAudioState = audioStateRef.current
-            console.log("Saving audio state before returning to camera:", savedAudioState)
+            const savedVideoState = videoStateRef.current
+            console.log("Saving states before returning to camera - audio:", savedAudioState, "video:", savedVideoState)
 
-            // Clear screen sharing flag immediately
             isScreenSharingRef.current = false
             isScreenShareOperationRef.current = false
 
-            // Small delay to ensure clean transition
             setTimeout(() => {
                 if (!isGettingUserMediaRef.current) {
-                    // Force the audio state to the saved value before calling getUserMedia
                     audioStateRef.current = savedAudioState
+                    videoStateRef.current = savedVideoState
 
                     getUserMedia().then(() => {
-                        // Re-enforce audio state after transition with the saved state
                         setTimeout(() => {
                             audioStateRef.current = savedAudioState
-                            enforceAudioState()
-                            console.log("Audio state re-enforced after screen share stop:", savedAudioState)
+                            videoStateRef.current = savedVideoState
+                            enforceTrackStates()
+                            console.log("States re-enforced after screen share stop")
                         }, 100)
                     })
                 }
             }, 100)
         }
-    }, [screen, askForUsername, getUserMedia, enforceAudioState])
+    }, [screen, askForUsername, getUserMedia, enforceTrackStates])
+
     const gotMessageFromServer = useCallback(
         (fromId, message) => {
             const signal = JSON.parse(message)
@@ -543,8 +537,7 @@ export const VideoMeet = () => {
                         }
                     })
                     .then(() => {
-                        // Enforce audio state after SDP exchange
-                        enforceAudioState()
+                        enforceTrackStates()
                     })
                     .catch((e) => console.error(`SDP error with ${fromId}:`, e))
             }
@@ -555,7 +548,7 @@ export const VideoMeet = () => {
                     .catch((e) => console.error("ICE candidate error:", e))
             }
         },
-        [enforceAudioState],
+        [enforceTrackStates],
     )
 
     const addMessage = useCallback((data, sender, socketIdSender) => {
@@ -695,10 +688,8 @@ export const VideoMeet = () => {
                         })
                     }
 
-                    // Inside connectToSocketServer, in the user-joined handler:
                     const streamToAdd = localStreamRef.current || createBlackSilenceStream()
 
-                    // Ensure stream has both video and audio tracks
                     const videoTracks = streamToAdd.getVideoTracks()
                     const audioTracks = streamToAdd.getAudioTracks()
 
@@ -714,6 +705,23 @@ export const VideoMeet = () => {
                         const silentAudio = createSilentAudioTrack()
                         silentAudio.enabled = false
                         streamToAdd.addTrack(silentAudio)
+                    }
+
+                    // CRITICAL: Ensure tracks have correct enabled state BEFORE adding to peer
+                    streamToAdd.getAudioTracks().forEach((track) => {
+                        if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
+                            track.enabled = audioStateRef.current
+                            console.log(`Setting audio track enabled to ${audioStateRef.current} for peer ${socketListId}`)
+                        }
+                    })
+
+                    if (!isScreenSharingRef.current) {
+                        streamToAdd.getVideoTracks().forEach((track) => {
+                            if (track.label && !track.label.includes("canvas")) {
+                                track.enabled = videoStateRef.current
+                                console.log(`Setting video track enabled to ${videoStateRef.current} for peer ${socketListId}`)
+                            }
+                        })
                     }
 
                     console.log(`Adding tracks to peer ${socketListId}:`, {
@@ -738,7 +746,6 @@ export const VideoMeet = () => {
                         broadcastMediaState()
                     }, 500)
 
-                    // Inside the user-joined event handler, in the offer creation section:
                     Object.entries(connectionsRef.current).forEach(([id2, connection]) => {
                         if (id2 === socketIdRef.current) return
 
@@ -762,13 +769,12 @@ export const VideoMeet = () => {
                 }
             })
         })
-    }, [username, gotMessageFromServer, addMessage, createBlackSilenceStream, broadcastMediaState])
+    }, [username, gotMessageFromServer, addMessage, createBlackSilenceStream, createBlackVideoTrack, createSilentAudioTrack, broadcastMediaState])
 
     const cleanupCall = useCallback(() => {
         try {
             stopLocalStream()
 
-            // Stop dedicated audio stream
             if (dedicatedAudioStreamRef.current) {
                 dedicatedAudioStreamRef.current.getTracks().forEach(track => track.stop())
                 dedicatedAudioStreamRef.current = null
@@ -867,7 +873,9 @@ export const VideoMeet = () => {
                 console.log("Initial getUserMedia complete, stream ready:", {
                     hasStream: !!localStreamRef.current,
                     videoTracks: localStreamRef.current?.getVideoTracks().length,
-                    audioTracks: localStreamRef.current?.getAudioTracks().length
+                    audioTracks: localStreamRef.current?.getAudioTracks().length,
+                    videoEnabled: localStreamRef.current?.getVideoTracks()[0]?.enabled,
+                    audioEnabled: localStreamRef.current?.getAudioTracks()[0]?.enabled
                 })
             })
         }
@@ -877,7 +885,7 @@ export const VideoMeet = () => {
         if (!askForUsername) {
             getDisplayMedia()
         }
-    }, [screen, askForUsername])
+    }, [screen, askForUsername, getDisplayMedia])
 
     useEffect(() => {
         if (!askForUsername) {
@@ -897,13 +905,11 @@ export const VideoMeet = () => {
             const userState = remoteUserStates[video.socketId] || {}
 
             if (videoElement && video.stream) {
-                // Always update srcObject if it's different
                 if (videoElement.srcObject !== video.stream) {
                     console.log(`Updating video element srcObject for ${video.socketId}`)
                     videoElement.srcObject = video.stream
                     videoElement.play().catch((e) => console.log("Play error:", e))
                 } else {
-                    // Even if same stream, check if tracks changed
                     const currentTracks = videoElement.srcObject?.getTracks() || []
                     const newTracks = video.stream?.getTracks() || []
 
@@ -914,7 +920,6 @@ export const VideoMeet = () => {
                     }
                 }
 
-                // Ensure video is playing if it should be
                 if (userState.video === true || userState.screen === true) {
                     if (videoElement.paused) {
                         console.log(`Video paused but should be playing for ${video.socketId}, playing now`)
@@ -928,19 +933,26 @@ export const VideoMeet = () => {
     const connect = useCallback(() => {
         setAskForUsername(false)
 
-        if (videoAvailable || audioAvailable) {
-            setVideo(videoAvailable)
-            setAudio(audioAvailable)
-            audioStateRef.current = audioAvailable
+        // Set initial states based on what's available
+        if (videoAvailable) {
+            setVideo(true)
+            videoStateRef.current = true
         } else {
             setVideo(false)
+            videoStateRef.current = false
+        }
+
+        if (audioAvailable) {
+            setAudio(true)
+            audioStateRef.current = true
+        } else {
             setAudio(false)
             audioStateRef.current = false
         }
 
-        // Don't create stream here - let getUserMedia handle it after socket connection
         connectToSocketServer()
     }, [videoAvailable, audioAvailable, connectToSocketServer])
+
     const handleVideo = useCallback(() => {
         if (!screen) {
             setVideo((prev) => !prev)
@@ -952,7 +964,6 @@ export const VideoMeet = () => {
             const newState = !prev
             audioStateRef.current = newState
 
-            // Immediately apply to current stream
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks()
                 audioTracks.forEach((track) => {
@@ -963,7 +974,6 @@ export const VideoMeet = () => {
                 })
             }
 
-            // Broadcast the change immediately
             if (socketRef.current) {
                 socketRef.current.emit("media-state-change", {
                     video: video,
@@ -997,12 +1007,10 @@ export const VideoMeet = () => {
         const newFacingMode = cameraFacingMode === "user" ? "environment" : "user"
         console.log("Switching camera to:", newFacingMode)
 
-        // Save audio state before switch
         const savedAudioState = audioStateRef.current
         console.log("Saved audio state before camera switch:", savedAudioState)
 
         try {
-            // Get current audio track
             let currentAudioTrack = null
             if (localStreamRef.current) {
                 const audioTracks = localStreamRef.current.getAudioTracks()
@@ -1011,12 +1019,10 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Stop only video tracks
             if (localStreamRef.current) {
                 localStreamRef.current.getVideoTracks().forEach((track) => track.stop())
             }
 
-            // Get new video stream
             const newVideoStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: 1280,
@@ -1029,12 +1035,10 @@ export const VideoMeet = () => {
             const newVideoTrack = newVideoStream.getVideoTracks()[0]
             newVideoTrack.enabled = true
 
-            // Create new stream with new video and existing audio
             const newStream = new MediaStream([newVideoTrack])
 
             if (currentAudioTrack) {
                 newStream.addTrack(currentAudioTrack)
-                // Force the saved audio state
                 currentAudioTrack.enabled = savedAudioState
                 console.log("Audio track preserved with state:", savedAudioState)
             }
@@ -1044,7 +1048,6 @@ export const VideoMeet = () => {
                 localVideoRef.current.srcObject = newStream
             }
 
-            // Replace only video track for all peers
             for (const [id, peerConnection] of Object.entries(connectionsRef.current)) {
                 if (id === socketIdRef.current) continue
 
@@ -1063,17 +1066,15 @@ export const VideoMeet = () => {
 
             setCameraFacingMode(newFacingMode)
 
-            // Re-enforce audio state after short delay
             setTimeout(() => {
-                enforceAudioState()
-                console.log("Audio state re-enforced after camera switch")
+                enforceTrackStates()
+                console.log("Track states re-enforced after camera switch")
             }, 150)
 
             console.log("Camera switched successfully")
         } catch (error) {
             console.error("Camera switch error:", error)
 
-            // Fallback without exact facingMode
             try {
                 let currentAudioTrack = null
                 if (localStreamRef.current) {
@@ -1129,7 +1130,7 @@ export const VideoMeet = () => {
                 setCameraFacingMode(newFacingMode)
 
                 setTimeout(() => {
-                    enforceAudioState()
+                    enforceTrackStates()
                 }, 150)
 
                 console.log("Camera switched (fallback) successfully")
@@ -1140,12 +1141,11 @@ export const VideoMeet = () => {
             setTimeout(() => {
                 setIsSwitchingCamera(false)
                 isSwitchingCameraRef.current = false
-                // Final audio state enforcement
-                enforceAudioState()
+                enforceTrackStates()
                 console.log("Camera switch complete")
             }, 200)
         }
-    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, enforceAudioState])
+    }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, enforceTrackStates])
 
     const handleChat = useCallback(() => {
         setShowModal((prev) => {
@@ -1215,13 +1215,15 @@ export const VideoMeet = () => {
         return { cols: 4, rows: Math.ceil(count / 4) }
     }, [videos.length])
 
+    // Effect for video toggle - only affects video track enabling/disabling
     useEffect(() => {
-        if (!askForUsername && localStreamRef.current && !screen) {
+        if (!askForUsername && localStreamRef.current && !screen && !isGettingUserMediaRef.current) {
             const videoTracks = localStreamRef.current.getVideoTracks()
 
             videoTracks.forEach((track) => {
                 if (track.label && !track.label.includes("canvas")) {
                     track.enabled = video
+                    console.log("Video track enabled state changed to:", video)
                 }
             })
 
@@ -1229,16 +1231,14 @@ export const VideoMeet = () => {
         }
     }, [video, askForUsername, screen, broadcastMediaState])
 
+    // Effect for audio toggle - only affects audio track enabling/disabling
     useEffect(() => {
-        if (!askForUsername && localStreamRef.current) {
-            if (isSwitchingCamera || isSwitchingCameraRef.current) {
-                return
-            }
-
+        if (!askForUsername && localStreamRef.current && !isSwitchingCamera && !isSwitchingCameraRef.current) {
             const audioTracks = localStreamRef.current.getAudioTracks()
             audioTracks.forEach((track) => {
                 if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
                     track.enabled = audioStateRef.current
+                    console.log("Audio track enabled state changed to:", audioStateRef.current)
                 }
             })
 
@@ -1248,6 +1248,7 @@ export const VideoMeet = () => {
         }
     }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState])
 
+    // Effect for camera facing mode change - only triggers if video is actually enabled
     useEffect(() => {
         if (
             !askForUsername &&
@@ -1256,11 +1257,17 @@ export const VideoMeet = () => {
             !isSwitchingCamera &&
             !isSwitchingCameraRef.current &&
             !isScreenShareOperationRef.current &&
-            !isGettingUserMediaRef.current  // Add this check
+            !isGettingUserMediaRef.current
         ) {
-            getUserMedia()
+            // Only call getUserMedia if video is enabled and available
+            const shouldGetMedia = videoStateRef.current && videoAvailable
+
+            if (shouldGetMedia) {
+                console.log("Camera facing mode changed, getting new user media")
+                getUserMedia()
+            }
         }
-    }, [cameraFacingMode, askForUsername, screen, isSwitchingCamera, getUserMedia])
+    }, [cameraFacingMode, askForUsername, screen, isSwitchingCamera, getUserMedia, videoAvailable])
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 relative overflow-hidden">
