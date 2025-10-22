@@ -29,10 +29,12 @@ export const VideoMeet = () => {
     const socketRef = useRef()
     const socketIdRef = useRef()
     const localVideoRef = useRef()
+    const previewVideoRef = useRef()
     const connectionsRef = useRef({})
     const isMountedRef = useRef(true)
     const isScreenSharingRef = useRef(false)
     const localStreamRef = useRef(null)
+    const previewStreamRef = useRef(null)
     const persistentAudioTrackRef = useRef(null)
     const chatEndRef = useRef()
     const audioStateRef = useRef(true)
@@ -44,6 +46,8 @@ export const VideoMeet = () => {
     const [audioAvailable, setAudioAvailable] = useState(true)
     const [video, setVideo] = useState(true)
     const [audio, setAudio] = useState(true)
+    const [previewVideo, setPreviewVideo] = useState(true)
+    const [previewAudio, setPreviewAudio] = useState(true)
     const [screen, setScreen] = useState(false)
     const [showModal, setShowModal] = useState(false)
     const [screenAvailable, setScreenAvailable] = useState(true)
@@ -222,6 +226,18 @@ export const VideoMeet = () => {
         }
     }, [])
 
+    const stopPreviewStream = useCallback(() => {
+        if (previewStreamRef.current) {
+            previewStreamRef.current.getTracks().forEach((track) => {
+                track.stop()
+            })
+            previewStreamRef.current = null
+        }
+        if (previewVideoRef.current) {
+            previewVideoRef.current.srcObject = null
+        }
+    }, [])
+
     const handleTrackEnded = useCallback(async () => {
         if (isScreenSharingRef.current) {
             setScreen(false)
@@ -243,15 +259,49 @@ export const VideoMeet = () => {
         await replaceStreamForPeers(blackSilence)
     }, [stopLocalStream, createBlackSilenceStream, replaceStreamForPeers])
 
+    const getPreviewMedia = useCallback(async () => {
+        try {
+            const constraints = {
+                video: videoAvailable && previewVideo ? {
+                    width: 1280,
+                    height: 720,
+                    facingMode: cameraFacingMode,
+                } : false,
+                audio: audioAvailable && previewAudio ? {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                } : false
+            }
+
+            if (!constraints.video && !constraints.audio) {
+                stopPreviewStream()
+                return
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+            if (stream.getVideoTracks().length > 0) {
+                stream.getVideoTracks()[0].enabled = previewVideo
+            }
+            if (stream.getAudioTracks().length > 0) {
+                stream.getAudioTracks()[0].enabled = false // Mute preview audio to avoid feedback
+            }
+
+            previewStreamRef.current = stream
+            if (previewVideoRef.current) {
+                previewVideoRef.current.srcObject = stream
+            }
+        } catch (e) {
+            console.error("Preview media error:", e)
+        }
+    }, [videoAvailable, audioAvailable, previewVideo, previewAudio, cameraFacingMode, stopPreviewStream])
+
     const getUserMedia = useCallback(async () => {
         if (isGettingUserMediaRef.current) {
             console.log("getUserMedia already in progress, skipping")
             return
         }
-
-        // Determine what we should request based on availability AND current state
-        const requestVideo = videoAvailable && videoStateRef.current
-        const requestAudio = audioAvailable && audioStateRef.current
 
         try {
             isGettingUserMediaRef.current = true
@@ -259,7 +309,7 @@ export const VideoMeet = () => {
             let videoStream = null
             let audioStream = null
 
-            // ALWAYS try to get audio if available, regardless of video
+            // ALWAYS request audio if available (we'll control it with enabled state)
             if (audioAvailable) {
                 try {
                     audioStream = await navigator.mediaDevices.getUserMedia({
@@ -276,8 +326,8 @@ export const VideoMeet = () => {
                 }
             }
 
-            // Get video only if available AND video state is true
-            if (requestVideo) {
+            // ALWAYS request video if available (we'll control it with enabled state)
+            if (videoAvailable) {
                 try {
                     videoStream = await navigator.mediaDevices.getUserMedia({
                         video: {
@@ -707,7 +757,6 @@ export const VideoMeet = () => {
                         streamToAdd.addTrack(silentAudio)
                     }
 
-                    // CRITICAL: Ensure tracks have correct enabled state BEFORE adding to peer
                     streamToAdd.getAudioTracks().forEach((track) => {
                         if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
                             track.enabled = audioStateRef.current
@@ -852,8 +901,9 @@ export const VideoMeet = () => {
         return () => {
             isMountedRef.current = false
             cleanupCall()
+            stopPreviewStream()
         }
-    }, [getPermissions, cleanupCall])
+    }, [getPermissions, cleanupCall, stopPreviewStream])
 
     useEffect(() => {
         const handleBeforeUnload = () => {
@@ -865,6 +915,18 @@ export const VideoMeet = () => {
         window.addEventListener("beforeunload", handleBeforeUnload)
         return () => window.removeEventListener("beforeunload", handleBeforeUnload)
     }, [askForUsername, cleanupCall])
+
+    useEffect(() => {
+        if (askForUsername && videoAvailable && audioAvailable) {
+            getPreviewMedia()
+        }
+
+        return () => {
+            if (askForUsername) {
+                stopPreviewStream()
+            }
+        }
+    }, [askForUsername, videoAvailable, audioAvailable, previewVideo, previewAudio, getPreviewMedia, stopPreviewStream])
 
     useEffect(() => {
         if (!askForUsername && !localStreamRef.current && !isScreenSharingRef.current && !isGettingUserMediaRef.current) {
@@ -931,33 +993,64 @@ export const VideoMeet = () => {
     }, [videos, remoteUserStates])
 
     const connect = useCallback(() => {
-        setAskForUsername(false)
+        // Stop preview stream BEFORE changing state
+        console.log("Stopping preview stream before connecting")
+        stopPreviewStream()
 
-        // Set initial states based on what's available
-        if (videoAvailable) {
-            setVideo(true)
-            videoStateRef.current = true
-        } else {
-            setVideo(false)
-            videoStateRef.current = false
-        }
+        // Wait a bit to ensure preview stream is fully released
+        setTimeout(() => {
+            setAskForUsername(false)
 
-        if (audioAvailable) {
-            setAudio(true)
-            audioStateRef.current = true
-        } else {
-            setAudio(false)
-            audioStateRef.current = false
-        }
+            if (videoAvailable) {
+                setVideo(previewVideo)
+                videoStateRef.current = previewVideo
+                console.log("Joining with video:", previewVideo)
+            } else {
+                setVideo(false)
+                videoStateRef.current = false
+            }
 
-        connectToSocketServer()
-    }, [videoAvailable, audioAvailable, connectToSocketServer])
+            if (audioAvailable) {
+                setAudio(previewAudio)
+                audioStateRef.current = previewAudio
+                console.log("Joining with audio:", previewAudio)
+            } else {
+                setAudio(false)
+                audioStateRef.current = false
+            }
+
+            connectToSocketServer()
+        }, 100)
+    }, [videoAvailable, audioAvailable, previewVideo, previewAudio, connectToSocketServer, stopPreviewStream])
 
     const handleVideo = useCallback(() => {
         if (!screen) {
-            setVideo((prev) => !prev)
+            setVideo((prev) => {
+                const newState = !prev
+                videoStateRef.current = newState
+
+                if (localStreamRef.current) {
+                    const videoTracks = localStreamRef.current.getVideoTracks()
+                    videoTracks.forEach((track) => {
+                        if (track.label && !track.label.includes("canvas")) {
+                            track.enabled = newState
+                            console.log("Video toggled to:", newState, "Track:", track.label)
+                        }
+                    })
+                }
+
+                if (socketRef.current) {
+                    socketRef.current.emit("media-state-change", {
+                        video: newState,
+                        audio: audio,
+                        screen: screen,
+                    })
+                }
+
+                return newState
+            })
         }
-    }, [screen])
+    }, [screen, audio])
 
     const handleAudio = useCallback(() => {
         setAudio((prev) => {
@@ -1147,6 +1240,11 @@ export const VideoMeet = () => {
         }
     }, [cameraFacingMode, screen, video, videoAvailable, isSwitchingCamera, enforceTrackStates])
 
+    const handlePreviewCameraToggle = useCallback(async () => {
+        const newFacingMode = cameraFacingMode === "user" ? "environment" : "user"
+        setCameraFacingMode(newFacingMode)
+    }, [cameraFacingMode])
+
     const handleChat = useCallback(() => {
         setShowModal((prev) => {
             if (!prev) {
@@ -1215,40 +1313,33 @@ export const VideoMeet = () => {
         return { cols: 4, rows: Math.ceil(count / 4) }
     }, [videos.length])
 
-    // Effect for video toggle - only affects video track enabling/disabling
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !screen && !isGettingUserMediaRef.current) {
             const videoTracks = localStreamRef.current.getVideoTracks()
 
             videoTracks.forEach((track) => {
                 if (track.label && !track.label.includes("canvas")) {
-                    track.enabled = video
-                    console.log("Video track enabled state changed to:", video)
+                    const shouldBeEnabled = videoStateRef.current
+                    track.enabled = shouldBeEnabled
+                    console.log("Video track enabled state enforced to:", shouldBeEnabled)
                 }
             })
-
-            broadcastMediaState()
         }
-    }, [video, askForUsername, screen, broadcastMediaState])
+    }, [video, askForUsername, screen])
 
-    // Effect for audio toggle - only affects audio track enabling/disabling
     useEffect(() => {
         if (!askForUsername && localStreamRef.current && !isSwitchingCamera && !isSwitchingCameraRef.current) {
             const audioTracks = localStreamRef.current.getAudioTracks()
             audioTracks.forEach((track) => {
                 if (track.label && !track.label.includes("MediaStreamAudioDestinationNode")) {
-                    track.enabled = audioStateRef.current
-                    console.log("Audio track enabled state changed to:", audioStateRef.current)
+                    const shouldBeEnabled = audioStateRef.current
+                    track.enabled = shouldBeEnabled
+                    console.log("Audio track enabled state enforced to:", shouldBeEnabled)
                 }
             })
-
-            setTimeout(() => {
-                broadcastMediaState()
-            }, 50)
         }
-    }, [audio, askForUsername, isSwitchingCamera, broadcastMediaState])
+    }, [audio, askForUsername, isSwitchingCamera])
 
-    // Effect for camera facing mode change - only triggers if video is actually enabled
     useEffect(() => {
         if (
             !askForUsername &&
@@ -1259,7 +1350,6 @@ export const VideoMeet = () => {
             !isScreenShareOperationRef.current &&
             !isGettingUserMediaRef.current
         ) {
-            // Only call getUserMedia if video is enabled and available
             const shouldGetMedia = videoStateRef.current && videoAvailable
 
             if (shouldGetMedia) {
@@ -1279,11 +1369,76 @@ export const VideoMeet = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="flex flex-col items-center justify-center min-h-screen p-4"
                 >
-                    <div className="w-full max-w-md space-y-6 backdrop-blur-xl bg-white/5 p-8 rounded-2xl border border-white/10 shadow-2xl">
+                    <div className="w-full max-w-2xl space-y-6 backdrop-blur-xl bg-white/5 p-8 rounded-2xl border border-white/10 shadow-2xl">
                         <div className="text-center space-y-2">
                             <h2 className="text-4xl font-bold text-white">Join Meeting</h2>
                             <p className="text-gray-400">Enter your name to continue</p>
                         </div>
+
+                        {/* Video Preview */}
+                        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border-2 border-white/10">
+                            <video
+                                ref={previewVideoRef}
+                                autoPlay
+                                muted
+                                playsInline
+                                className="w-full h-full object-contain"
+                                style={{ transform: "scaleX(-1)" }}
+                            />
+                            {(!previewVideo || !videoAvailable) && (
+                                <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex flex-col items-center justify-center">
+                                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center mb-3 shadow-lg">
+                                        <VideoOff size={32} className="text-white" />
+                                    </div>
+                                    <p className="text-white/70 text-sm">Camera Off</p>
+                                </div>
+                            )}
+
+                            {/* Preview Controls Overlay */}
+                            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3">
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setPreviewVideo(!previewVideo)}
+                                    disabled={!videoAvailable}
+                                    className={`p-3 rounded-full transition-all ${!videoAvailable
+                                        ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
+                                        : previewVideo
+                                            ? "bg-white/90 text-black hover:bg-white"
+                                            : "bg-red-500 text-white hover:bg-red-600"
+                                        }`}
+                                >
+                                    {previewVideo ? <Video size={20} /> : <VideoOff size={20} />}
+                                </motion.button>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setPreviewAudio(!previewAudio)}
+                                    disabled={!audioAvailable}
+                                    className={`p-3 rounded-full transition-all ${!audioAvailable
+                                        ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-50"
+                                        : previewAudio
+                                            ? "bg-white/90 text-black hover:bg-white"
+                                            : "bg-red-500 text-white hover:bg-red-600"
+                                        }`}
+                                >
+                                    {previewAudio ? <Mic size={20} /> : <MicOff size={20} />}
+                                </motion.button>
+
+                                {hasMultipleCameras && videoAvailable && previewVideo && (
+                                    <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={handlePreviewCameraToggle}
+                                        className="p-3 rounded-full bg-white/90 text-black hover:bg-white transition-all"
+                                    >
+                                        <SwitchCamera size={20} />
+                                    </motion.button>
+                                )}
+                            </div>
+                        </div>
+
                         <input
                             type="text"
                             value={username}
@@ -1300,7 +1455,7 @@ export const VideoMeet = () => {
                                     <div>
                                         <p className="text-white font-medium text-sm">Camera</p>
                                         <p className="text-gray-400 text-xs">
-                                            {videoAvailable ? "Permission granted" : "Not available or denied"}
+                                            {videoAvailable ? "Available" : "Not available or denied"}
                                         </p>
                                     </div>
                                 </div>
@@ -1313,26 +1468,12 @@ export const VideoMeet = () => {
                                     <div>
                                         <p className="text-white font-medium text-sm">Microphone</p>
                                         <p className="text-gray-400 text-xs">
-                                            {audioAvailable ? "Permission granted" : "Not available or denied"}
+                                            {audioAvailable ? "Available" : "Not available or denied"}
                                         </p>
                                     </div>
                                 </div>
                                 <div className={`w-3 h-3 rounded-full ${audioAvailable ? "bg-green-500" : "bg-red-500"}`} />
                             </div>
-
-                            {hasMultipleCameras && videoAvailable && (
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={handleCameraToggle}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all bg-white/10 hover:bg-white/20 border border-white/20 text-white"
-                                >
-                                    <SwitchCamera size={18} />
-                                    <span className="text-sm font-medium">
-                                        Switch to {cameraFacingMode === "user" ? "Back" : "Front"} Camera
-                                    </span>
-                                </motion.button>
-                            )}
                         </div>
 
                         <motion.button
@@ -1342,7 +1483,7 @@ export const VideoMeet = () => {
                             disabled={!username.trim()}
                             className="w-full py-4 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Join Now
+                            Join with {previewVideo ? "Video" : "Video Off"} and {previewAudio ? "Audio" : "Audio Off"}
                         </motion.button>
 
                         {!videoAvailable && !audioAvailable && (

@@ -6,11 +6,14 @@ import LandingPage from "./pages/LandingPage";
 import Authentication from "./pages/Authentication";
 import Home from "./pages/Home";
 import History from "./pages/History";
-import { VideoMeet } from "./pages/VideoMeet";
+import { MeetingRoom } from "./pages/MeetingRoom";
 
 // HOCs
 import withAuth from "./utils/withAuth";
 import withPublic from "./utils/withPublic";
+import { PreviewMeeting } from './pages/PreviewMeeting';
+import NotFound from './pages/NotFound';
+import { VideoMeet } from './pages/VideoMeet';
 
 // Wrap components once
 const PublicLanding = withPublic(LandingPage);
@@ -32,7 +35,11 @@ function App() {
           <Route path="/history" element={<PrivateHistory />} />
 
           {/* VideoMeet is public */}
-          <Route path="/:url" element={<VideoMeet />} />
+          {/* <Route path="/previewMeeting/:meetingCode" element={<PreviewMeeting />} />
+          <Route path="/meeting/:meetingCode" element={<MeetingRoom />} /> */}
+
+          <Route path='/:meetingCode' element={<VideoMeet />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
     </Router>
